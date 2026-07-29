@@ -90,7 +90,7 @@ def introduce_yourself():
     speak("""
 Hello! I am Maya.
 
-Created by the genius Taha.
+Created by Taha.
 
 I am not just a simple assistant — I am smart, fast, and always ready to help.
 
