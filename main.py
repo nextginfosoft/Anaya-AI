@@ -501,8 +501,8 @@ def start_maya():
             print("Loop Error:", e)
 
 # -------------------- PUSH TO TALK -------------------- #
-# Comma-separated list. "mouse:x2" = forward side button, "mouse:x" = back side button, anything else = keyboard key.
-PTT_KEYS = [k.strip().lower() for k in os.environ.get("MAYA_PTT_KEY", "mouse:x2,f9").split(",") if k.strip()]
+# Comma-separated list. Default: Right Ctrl or F9. "mouse:x2" / "mouse:x" = mouse side buttons (if your mouse reports them), anything else = keyboard key.
+PTT_KEYS = [k.strip().lower() for k in os.environ.get("MAYA_PTT_KEY", "right ctrl,f9").split(",") if k.strip()]
 PTT_LABEL = " or ".join(("mouse side button" if k == "mouse:x2" else "mouse back button" if k == "mouse:x" else k.upper()) for k in PTT_KEYS)
 
 def ptt_held(keys=None):
