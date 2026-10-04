@@ -273,3 +273,62 @@ class TestLiveInfo:
     def test_what_is_questions_still_go_to_ai(self, log):
         main.process_command("what is two plus two")
         assert any(e.startswith("say:ai:") for e in log)
+
+
+# ---------------- Hindi / Hinglish ----------------
+@pytest.mark.parametrize("heard, english", [
+    ("क्रोम खोलो", "open chrome"), ("chrome kholo", "open chrome"), ("यूट्यूब खोल दो", "open youtube"),
+    ("आवाज़ बढ़ाओ", "volume up"), ("volume kam karo", "volume down"), ("awaaz badhao", "volume up"),
+    ("समय क्या हुआ", "what time is it"), ("तारीख क्या है", "what is the date"),
+    ("मौसम कैसा है", "weather"), ("खबर सुनाओ", "tell me the news"),
+    ("open chrome", "open chrome"), ("who wrote hamlet", "who wrote hamlet"),
+])
+def test_hindi_to_english(heard, english):
+    assert main.hindi_to_english(heard) == english
+
+
+def test_hindi_command_runs_english_action(log):
+    main.process_command("आवाज़ बढ़ाओ")
+    assert "key:volume upx5" in log
+
+
+class TestRecognitionFallback:
+    @pytest.fixture(autouse=True)
+    def reset_lang(self, monkeypatch):
+        monkeypatch.setattr(main, "_recog_primary", "en-IN")
+
+    def fake(self, monkeypatch, outcomes):
+        calls = []
+
+        def recognize_google(audio, language):
+            calls.append(language)
+            result = outcomes[language]
+            if result is None:
+                raise main.sr.UnknownValueError()
+            return result
+
+        monkeypatch.setattr(main.recognizer, "recognize_google", recognize_google)
+        return calls
+
+    def test_uses_primary_when_it_works(self, monkeypatch):
+        calls = self.fake(monkeypatch, {"en-IN": "open chrome", "hi-IN": "ignored"})
+        assert main.recognize_with_fallback(object()) == "open chrome"
+        assert calls == ["en-IN"]
+
+    def test_falls_back_to_hindi(self, monkeypatch):
+        calls = self.fake(monkeypatch, {"en-IN": None, "hi-IN": "क्रोम खोलो"})
+        assert main.recognize_with_fallback(object()) == "क्रोम खोलो"
+        assert calls == ["en-IN", "hi-IN"]
+
+    def test_returns_none_when_both_fail(self, monkeypatch):
+        self.fake(monkeypatch, {"en-IN": None, "hi-IN": None})
+        assert main.recognize_with_fallback(object()) is None
+
+    def test_switch_language_by_voice(self, log, monkeypatch):
+        main.process_command("switch to hindi")
+        assert main._recog_primary == "hi-IN"
+        calls = self.fake(monkeypatch, {"en-IN": "x", "hi-IN": "namaste"})
+        main.recognize_with_fallback(object())
+        assert calls == ["hi-IN"]
+        main.process_command("switch to english")
+        assert main._recog_primary == "en-IN"

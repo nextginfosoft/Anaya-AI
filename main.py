@@ -364,7 +364,9 @@ def listen_command(timeout=5, phrase_time=6):
         audio = record_phrase(timeout, phrase_time)
         if audio is None:
             return ""
-        text = recognizer.recognize_google(audio, language="en-IN")
+        text = recognize_with_fallback(audio)
+        if text is None:
+            raise sr.UnknownValueError()
         print("Heard:", text)
         return text
     except sr.UnknownValueError:
@@ -419,6 +421,68 @@ def normalize_command(command):
     command = re.sub(r"^open\s+(?:up\s+)?(?:the\s+|my\s+|a\s+)?", "open ", command)
     command = re.sub(r"\bplease\b", "", command)
     return re.sub(r"\s+", " ", command).strip()
+
+# -------------------- HINDI / HINGLISH -------------------- #
+# Recognition tries the main language first and, if Google can't make sense of the audio, the second one.
+RECOG_LANGS = {"en": "en-IN", "hi": "hi-IN"}
+_recog_primary = os.environ.get("MAYA_LANG", "en-IN")
+
+def _secondary_lang():
+    return "hi-IN" if _recog_primary != "hi-IN" else "en-IN"
+
+def set_recognition_language(code):
+    global _recog_primary
+    _recog_primary = RECOG_LANGS[code]
+
+def recognize_with_fallback(audio):
+    """Transcribe with the primary language, then the secondary. Returns None if neither works."""
+    for lang in (_recog_primary, _secondary_lang()):
+        try:
+            text = recognizer.recognize_google(audio, language=lang)
+            if text.strip():
+                return text
+        except sr.UnknownValueError:
+            continue
+    return None
+
+# Devanagari and Hinglish words -> the English command words the rest of Maya understands.
+_HINDI_WORDS = [
+    (r"खोलो|खोल दो|खोलिए|खोल|kholo|khol do|kholiye|chalu karo", "open"),
+    (r"क्रोम", "chrome"), (r"यूट्यूब|यू ट्यूब", "youtube"), (r"व्हाट्सएप|व्हाट्सऐप|वाट्सऐप", "whatsapp"),
+    (r"नोटपैड", "notepad"), (r"कैलकुलेटर|कैलक्यूलेटर", "calculator"), (r"सेटिंग्स|सेटिंग", "settings"),
+    (r"वॉल्यूम|वाल्यूम|आवाज़|आवाज|awaaz|awaz", "volume"),
+    (r"बढ़ाओ|बढ़ा दो|बढ़ाइए|बढ़ा|badhao|badha do", "up"),
+    (r"घटाओ|घटा दो|कम करो|कम कर दो|कम|ghatao|kam karo", "down"),
+    (r"म्यूट|चुप", "mute"), (r"स्क्रीनशॉट", "screenshot"),
+    (r"ब्राइटनेस|brightness", "brightness"),
+]
+_HINDI_PHRASES = [
+    (r"(समय|टाइम|samay|time) (क्या|कितना|kya|kitna)", "what time is it"),
+    (r"(तारीख|आज की तारीख|aaj ki tarikh|tarikh)", "what is the date"),
+    (r"(मौसम|mausam)", "weather"),
+    (r"(खबर|ख़बर|समाचार|khabar|samachar)", "tell me the news"),
+    (r"(बैटरी|battery) (कितनी|kitni|कितना)", "battery level"),
+    (r"(स्क्रीन लॉक|screen lock)", "lock the screen"),
+]
+
+def hindi_to_english(text):
+    """Translate common Hindi/Hinglish command phrases. English input passes through unchanged."""
+    t = text.strip().lower()
+    for pattern, english in _HINDI_PHRASES:
+        if re.search(pattern, t):
+            return english
+    changed = False
+    for pattern, english in _HINDI_WORDS:
+        new = re.sub(pattern, english, t)
+        changed = changed or new != t
+        t = new
+    if not changed:
+        return text
+    t = re.sub(r"\s+", " ", t).strip()
+    m = re.match(r"^(.+?) open$", t)                 # Hindi puts the verb last: "chrome open" -> "open chrome"
+    if m:
+        t = "open " + m.group(1)
+    return t
 
 # -------------------- LIVE INFO (weather, news, Wikipedia) -------------------- #
 # Free services, no API keys: Open-Meteo (weather), Google News RSS, Wikipedia. Your question text is sent to them.
@@ -792,9 +856,16 @@ def handle_system_command(command):
     return False
 
 def process_command(command):
-    command = normalize_command(command)
+    command = normalize_command(hindi_to_english(command))
 
     try:
+        m = re.search(r"\b(?:switch to|speak|use|change to)\s+(hindi|english)\b|\b(hindi|english) mode\b", command)
+        if m:
+            language = m.group(1) or m.group(2)
+            set_recognition_language("hi" if language == "hindi" else "en")
+            speak(f"Okay boss, I will listen for {language.capitalize()} first")
+            return
+
         if re.search(r"\b(forget (that|this|everything|it)|new topic|start over|clear (the )?(memory|conversation))\b", command):
             forget_conversation()
             speak("Okay boss, starting fresh")
@@ -994,9 +1065,8 @@ def start_push_to_talk():
             if audio is None:
                 print("Too short, ignored")
                 continue
-            try:
-                text = recognizer.recognize_google(audio, language="en-IN")
-            except sr.UnknownValueError:
+            text = recognize_with_fallback(audio)
+            if text is None:
                 print(f"Could not understand it (raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')})")
                 speak("Sorry boss, I did not catch that")
                 continue
