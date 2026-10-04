@@ -515,12 +515,14 @@ def add_reminder(due, text):
         _save_reminders(items)
 
 def describe_delay(seconds):
-    seconds = max(0, int(seconds))
+    seconds = max(0, round(seconds))
     if seconds < 90:
-        return f"{seconds} seconds"
+        return f"{seconds} second" + ("" if seconds == 1 else "s")
     if seconds < 5400:
-        return f"{round(seconds / 60)} minutes"
-    return f"{seconds / 3600:.1f} hours"
+        minutes = round(seconds / 60)
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
+    hours = round(seconds / 3600, 1)
+    return f"{hours:g} hour" + ("" if hours == 1 else "s")
 
 def _reminder_loop():
     while True:
