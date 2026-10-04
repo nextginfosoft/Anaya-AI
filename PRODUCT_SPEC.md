@@ -1,4 +1,6 @@
-# Maya AI 1.2 — Product Spec
+# Anaya AI 1.2 — Product Spec
+
+Anaya AI is developed by Santosh Pandit and is based on the original Maya AI 1.2 by Taha Shaikh (MIT License, see `LICENSE`).
 
 ## Goal
 A private, mostly-local voice assistant for Windows (and macOS) that controls the computer and answers questions
@@ -10,7 +12,7 @@ A single desktop user who wants quick spoken commands and short answers without 
 ## Core features (built)
 | Area | Behaviour |
 |---|---|
-| Input | Hold Right Ctrl / F9 to record; release to send. Optional wake-word mode ("Maya"). |
+| Input | Hold Right Ctrl / F9 to record; release to send. Optional wake-word mode ("Anaya"). |
 | Recognition | Offline Whisper (`base`, English + Hindi) first; Google Speech only as a fallback. Audio is boosted for quiet mics. Benchmark on quiet synthetic commands: Whisper 10/10, Google 8/10. |
 | Output | Neural Edge voice (en-IN Neerja; Hindi Swara for Devanagari), falls back to the offline Windows voice. Clipboard/selection/summaries always use the offline voice. Interruptible with Esc or the talk key. |
 | Apps & web | Open VS Code, Chrome, Safari (mac), WhatsApp, YouTube; search Google/YouTube; play songs. |
@@ -25,18 +27,18 @@ A single desktop user who wants quick spoken commands and short answers without 
 | Hands-free text | Dictation mode and "type …" paste into the active window; read the clipboard or selection aloud; translate and summarise via the local model. |
 | Briefing | At sign-in (once per 4 hours, after a 12 s delay) and on demand: time, battery, weather, reminders, headlines. Esc stops it. |
 | Reliability | Single-instance guard, crash supervisor with backoff, specific spoken errors (Ollama down, model missing, mic unavailable, speech service unreachable), log rotation. |
-| Startup | Auto-starts at Windows sign-in (Startup-folder shortcut), logs to `maya.log`. |
+| Startup | Auto-starts at Windows sign-in (Startup-folder shortcut), logs to `anaya.log`. |
 
 ## Non-goals / safety
 - No shutdown/restart/sleep by voice (risk of misrecognition).
 - No always-on microphone in the default mode (push-to-talk only records while the key is held).
-- Speech is transcribed on the machine (Whisper). Google gets audio only if Whisper hears nothing usable (`MAYA_STT_FALLBACK=0` to forbid). The neural voice sends the spoken reply text to Microsoft (`MAYA_TTS=windows` for fully offline). Rejected-audio capture is off unless `MAYA_DEBUG_AUDIO=1`.
+- Speech is transcribed on the machine (Whisper). Google gets audio only if Whisper hears nothing usable (`ANAYA_STT_FALLBACK=0` to forbid). The neural voice sends the spoken reply text to Microsoft (`ANAYA_TTS=windows` for fully offline). Rejected-audio capture is off unless `ANAYA_DEBUG_AUDIO=1`.
 
 ## Known limitations
 - Laptop mic is very quiet; a headset/USB mic or higher Windows input level improves accuracy a lot.
 - Hindi: only the commands in `_HINDI_WORDS` / `_HINDI_PHRASES` are understood; open questions in Hindi go to a small English-centred model, and replies are spoken in English.
-- Weather without a city uses an IP-based location guess (set `MAYA_CITY` to fix it).
-- Reminders fire only while Maya is running.
+- Weather without a city uses an IP-based location guess (set `ANAYA_CITY` to fix it).
+- Reminders fire only while Anaya is running.
 
 ## Backlog
 1. Confirmation step, then shutdown/restart/sleep by voice.

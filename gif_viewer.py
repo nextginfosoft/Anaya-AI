@@ -5,7 +5,7 @@ import threading
 import time
 
 class GIFViewer(tk.Toplevel):
-    def __init__(self, parent, gif_path, title="Maya AI"):
+    def __init__(self, parent, gif_path, title="Anaya AI"):
         super().__init__(parent)
         self.gif_path = gif_path
         self.title(title)

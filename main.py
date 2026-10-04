@@ -14,9 +14,17 @@ import ollama
 import pyautogui
 from datetime import datetime, timedelta
 
-# Under pythonw (auto-start at login) there is no console: log to maya.log instead
+def _env(name, default=None):
+    """Setting lookup: ANAYA_<NAME> first, then the old MAYA_<NAME> so existing setups keep working."""
+    for prefix in ("ANAYA_", "MAYA_"):
+        value = os.environ.get(prefix + name)
+        if value is not None:
+            return value
+    return default
+
+# Under pythonw (auto-start at login) there is no console: log to anaya.log instead
 if sys.stdout is None or sys.stderr is None:
-    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maya.log")
+    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anaya.log")
     try:
         if os.path.getsize(_log_path) > 1_000_000:      # keep the log from growing forever
             os.replace(_log_path, _log_path + ".1")
@@ -35,8 +43,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 recognizer = sr.Recognizer()
 
-# Local Ollama model used for chat answers (override with the MAYA_MODEL env var)
-OLLAMA_MODEL = os.environ.get("MAYA_MODEL", "llama3.2:3b")
+# Local Ollama model used for chat answers (override with the ANAYA_MODEL env var)
+OLLAMA_MODEL = _env("MODEL", "llama3.2:3b")
 
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -77,11 +85,11 @@ def open_app(mac_name, win_candidates, fallback_url=None):
     return False
 
 # GIF Animation Configuration
-GIF_PATH = "maya_animation.gif"  # Change this to your GIF filename
+GIF_PATH = "anaya_animation.gif"  # Change this to your GIF filename
 
 def show_startup_gif():
-    """Show GIF animation in browser (off by default; set MAYA_ANIMATION=1 to enable)"""
-    if os.environ.get("MAYA_ANIMATION", "0") != "1":
+    """Show GIF animation in browser (off by default; set ANAYA_ANIMATION=1 to enable)"""
+    if _env("ANIMATION", "0") != "1":
         return
     try:
         # Get absolute path
@@ -94,7 +102,7 @@ def show_startup_gif():
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Maya AI</title>
+    <title>Anaya AI</title>
     <style>
         body {{
             margin: 0;
@@ -107,7 +115,7 @@ def show_startup_gif():
             overflow: hidden;
         }}
        
-        .maya-gif {{
+        .anaya-gif {{
             max-width: 90vw;
             max-height: 90vh;
     
@@ -116,40 +124,40 @@ def show_startup_gif():
     </style>
 </head>
 <body>
-    <div class="maya-container">
-        <img src="{Path(gif_absolute_path).as_uri()}" alt="Maya AI Animation" class="maya-gif">
+    <div class="anaya-container">
+        <img src="{Path(gif_absolute_path).as_uri()}" alt="Anaya AI Animation" class="anaya-gif">
     </div>
 </body>
 </html>
             """
             
             # Save HTML file
-            html_file = "maya_animation.html"
+            html_file = "anaya_animation.html"
             with open(html_file, "w", encoding="utf-8") as f:
                 f.write(html_content)
             
             # Open HTML in browser
             html_path = os.path.abspath(html_file)
             webbrowser.open(Path(html_path).as_uri())
-            print("✅ Maya AI animation opened in browser")
+            print("✅ Anaya AI animation opened in browser")
             
         else:
             print(f"❌ GIF file not found: {gif_absolute_path}")
             print("💡 Using fallback animation...")
             
             # Open fallback animation
-            fallback_path = os.path.abspath("maya_fallback_animation.html")
+            fallback_path = os.path.abspath("anaya_fallback_animation.html")
             webbrowser.open(Path(fallback_path).as_uri())
-            print("✅ Maya AI fallback animation opened in browser")
+            print("✅ Anaya AI fallback animation opened in browser")
             
     except Exception as e:
         print(f"❌ GIF Error: {e}")
         print("💡 Continuing without animation...")
 
-STOP_KEY = os.environ.get("MAYA_STOP_KEY", "esc")
+STOP_KEY = _env("STOP_KEY", "esc")
 
 def stop_requested():
-    """True if the stop key (default Esc) or a push-to-talk key is held, so you can cut Maya off mid-sentence."""
+    """True if the stop key (default Esc) or a push-to-talk key is held, so you can cut Anaya off mid-sentence."""
     try:
         import keyboard
         if keyboard.is_pressed(STOP_KEY):
@@ -161,11 +169,11 @@ def stop_requested():
 _speak_lock = threading.Lock()  # reminders speak from a background thread; never talk over each other
 
 # -------------------- VOICE -------------------- #
-# MAYA_TTS=edge (default): Microsoft neural voices, natural-sounding, needs internet and sends the spoken TEXT to Microsoft.
-# MAYA_TTS=windows: the robotic offline Windows voice. Private content (clipboard, summaries) always uses the offline voice.
-TTS_ENGINE = os.environ.get("MAYA_TTS", "edge").lower()
-EDGE_VOICE_EN = os.environ.get("MAYA_EDGE_VOICE", "en-IN-NeerjaNeural")
-EDGE_VOICE_HI = os.environ.get("MAYA_EDGE_VOICE_HI", "hi-IN-SwaraNeural")
+# ANAYA_TTS=edge (default): Microsoft neural voices, natural-sounding, needs internet and sends the spoken TEXT to Microsoft.
+# ANAYA_TTS=windows: the robotic offline Windows voice. Private content (clipboard, summaries) always uses the offline voice.
+TTS_ENGINE = _env("TTS", "edge").lower()
+EDGE_VOICE_EN = _env("EDGE_VOICE", "en-IN-NeerjaNeural")
+EDGE_VOICE_HI = _env("EDGE_VOICE_HI", "hi-IN-SwaraNeural")
 
 def _mci(command):
     import ctypes
@@ -187,19 +195,19 @@ def synthesize_edge(text, path):
 def _speak_edge(text):
     """Speak with the neural voice. Returns True/False for interrupted, or None if it couldn't (offline etc.)."""
     import tempfile
-    path = os.path.join(tempfile.gettempdir(), f"maya_tts_{os.getpid()}_{threading.get_ident()}.mp3")
+    path = os.path.join(tempfile.gettempdir(), f"anaya_tts_{os.getpid()}_{threading.get_ident()}.mp3")
     try:
         synthesize_edge(text, path)
         if not os.path.exists(path) or os.path.getsize(path) == 0:
             return None
-        _mci("close maya_tts")
-        _mci(f'open "{path}" type mpegvideo alias maya_tts')
-        _mci("play maya_tts")
+        _mci("close anaya_tts")
+        _mci(f'open "{path}" type mpegvideo alias anaya_tts')
+        _mci("play anaya_tts")
         started = time.time()
         interrupted = False
-        while _mci("status maya_tts mode") == "playing":
+        while _mci("status anaya_tts mode") == "playing":
             if time.time() - started > 0.4 and stop_requested():
-                _mci("stop maya_tts")
+                _mci("stop anaya_tts")
                 print("(interrupted)")
                 interrupted = True
                 break
@@ -209,7 +217,7 @@ def _speak_edge(text):
         print("Neural voice unavailable, using the Windows voice:", e)
         return None
     finally:
-        _mci("close maya_tts")
+        _mci("close anaya_tts")
         try:
             os.remove(path)
         except OSError:
@@ -221,7 +229,7 @@ def speak(text, offline=False):
         return bool(_speak(text, offline))
 
 def _speak(text, offline=False):
-    print("maya:", text)
+    print("anaya:", text)
     if IS_WINDOWS and TTS_ENGINE == "edge" and not offline:
         interrupted = _speak_edge(text)
         if interrupted is not None:
@@ -235,13 +243,13 @@ def _speak_system(text):
             script = (
                 "Add-Type -AssemblyName System.Speech;"
                 "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
-                "try { if ($env:MAYA_VOICE) { $s.SelectVoice($env:MAYA_VOICE) } "
+                "try { if ($env:ANAYA_VOICE) { $s.SelectVoice($env:ANAYA_VOICE) } "
                 "else { $s.SelectVoiceByHints('Female','Adult',0,[Globalization.CultureInfo]'en-IN') } } catch {};"
-                "$s.Speak($env:MAYA_TEXT)"
+                "$s.Speak($env:ANAYA_TEXT)"
             )
             proc = subprocess.Popen(
                 ["powershell", "-NoProfile", "-Command", script],
-                env={**os.environ, "MAYA_TEXT": text},  # MAYA_VOICE overrides the voice, e.g. "Microsoft Zira Desktop"
+                env={**os.environ, "ANAYA_TEXT": text, "ANAYA_VOICE": _env("VOICE") or ""},  # ANAYA_VOICE overrides the voice, e.g. "Microsoft Zira Desktop"
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             started = time.time()
@@ -262,9 +270,10 @@ def _speak_system(text):
 # -------------------- INTRODUCTION -------------------- #
 def introduce_yourself():
     speak("""
-Hello! I am Maya.
+Hello! I am Anaya.
 
-Created by Taha.
+Developed by Santosh Pandit,
+based on the original Maya AI by Taha Shaikh.
 
 I am not just a simple assistant — I am smart, fast, and always ready to help.
 
@@ -314,13 +323,13 @@ def open_folder_anywhere(foldername):
         print("Folder Search Error:", e)
         speak("Error while opening folder")
 
-MAYA_SYSTEM_PROMPT = (
-    "You are Maya, a friendly voice assistant. Your replies are spoken aloud, so answer in at most "
+ANAYA_SYSTEM_PROMPT = (
+    "You are Anaya, a friendly voice assistant. Your replies are spoken aloud, so answer in at most "
     "two short sentences. Never use bullet points, markdown or emojis, and skip any preamble. If asked for a "
     "list, name a few items in one spoken sentence. Only go longer if the user explicitly asks for detail. "
     "Always reply in English."
 )
-MAX_REPLY_TOKENS = int(os.environ.get("MAYA_MAX_TOKENS", "100"))
+MAX_REPLY_TOKENS = int(_env("MAX_TOKENS", "100"))
 
 def clean_for_speech(text):
     """Strip markdown/symbols and cut off any trailing half-finished sentence."""
@@ -348,7 +357,7 @@ def ask_local_ai(prompt):
         now = time.time()
         if now - _last_chat_time > HISTORY_IDLE_SECONDS:
             forget_conversation()
-        messages = [{"role": "system", "content": MAYA_SYSTEM_PROMPT}] + HISTORY + [{"role": "user", "content": prompt}]
+        messages = [{"role": "system", "content": ANAYA_SYSTEM_PROMPT}] + HISTORY + [{"role": "user", "content": prompt}]
         response = ollama.chat(
             model=OLLAMA_MODEL,
             messages=messages,
@@ -439,8 +448,8 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
 DEBUG_AUDIO_KEEP = 30
 
 def save_rejected_audio(audio):
-    """Off by default (it stores recordings of your voice). MAYA_DEBUG_AUDIO=1 keeps the last 30 rejected clips."""
-    if os.environ.get("MAYA_DEBUG_AUDIO", "0") != "1":
+    """Off by default (it stores recordings of your voice). ANAYA_DEBUG_AUDIO=1 keeps the last 30 rejected clips."""
+    if _env("DEBUG_AUDIO", "0") != "1":
         return None
     try:
         os.makedirs("debug_audio", exist_ok=True)
@@ -557,7 +566,7 @@ def handle_custom_app(command):
 # -------------------- HINDI / HINGLISH -------------------- #
 # Recognition tries the main language first and, if Google can't make sense of the audio, the second one.
 RECOG_LANGS = {"en": "en-IN", "hi": "hi-IN"}
-_recog_primary = os.environ.get("MAYA_LANG", "en-IN")
+_recog_primary = _env("LANG", "en-IN")
 
 def _secondary_lang():
     return "hi-IN" if _recog_primary != "hi-IN" else "en-IN"
@@ -579,13 +588,13 @@ def recognize_google_both(audio):
 
 # -------------------- OFFLINE SPEECH RECOGNITION (Whisper) -------------------- #
 # Runs on this PC, so your voice is not uploaded. Google is only used if Whisper hears nothing usable
-# (set MAYA_STT_FALLBACK=0 to never use Google, or MAYA_STT=google to use only Google).
+# (set ANAYA_STT_FALLBACK=0 to never use Google, or ANAYA_STT=google to use only Google).
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-STT_ENGINE = os.environ.get("MAYA_STT", "whisper").lower()
-STT_FALLBACK_TO_GOOGLE = os.environ.get("MAYA_STT_FALLBACK", "1") == "1"
-WHISPER_MODEL_NAME = os.environ.get("MAYA_WHISPER_MODEL", "base")
+STT_ENGINE = _env("STT", "whisper").lower()
+STT_FALLBACK_TO_GOOGLE = _env("STT_FALLBACK", "1") == "1"
+WHISPER_MODEL_NAME = _env("WHISPER_MODEL", "base")
 WHISPER_PROMPT = (
-    "Voice commands for Maya: open Chrome, open YouTube, open Notepad, volume up, volume down, set brightness, "
+    "Voice commands for Anaya: open Chrome, open YouTube, open Notepad, volume up, volume down, set brightness, "
     "set a timer for five minutes, remind me in ten minutes, what is the weather in Delhi, tell me the news, "
     "translate this to Hindi, summarise what I copied, start dictation, lock the screen, who wrote Hamlet."
 )
@@ -685,7 +694,7 @@ def not_understood_message():
         return "I cannot reach the speech service and my offline model is not ready yet."
     return "Sorry boss, I did not catch that"
 
-# Devanagari and Hinglish words -> the English command words the rest of Maya understands.
+# Devanagari and Hinglish words -> the English command words the rest of Anaya understands.
 _HINDI_WORDS = [
     (r"खोलो|खोल दो|खोलिए|खोल|kholo|khol do|kholiye|chalu karo", "open"),
     (r"क्रोम", "chrome"), (r"यूट्यूब|यू ट्यूब", "youtube"), (r"व्हाट्सएप|व्हाट्सऐप|वाट्सऐप", "whatsapp"),
@@ -726,7 +735,7 @@ def hindi_to_english(text):
 
 # -------------------- LIVE INFO (weather, news, Wikipedia) -------------------- #
 # Free services, no API keys: Open-Meteo (weather), Google News RSS, Wikipedia. Your question text is sent to them.
-HTTP_HEADERS = {"User-Agent": "MayaAI/1.2 (personal voice assistant)"}
+HTTP_HEADERS = {"User-Agent": "AnayaAI/1.2 (personal voice assistant)"}
 HTTP_TIMEOUT = 6
 _WEATHER_CODES = {
     0: "clear sky", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "foggy", 48: "foggy",
@@ -743,9 +752,9 @@ def _http_json(url, params=None):
     return r.json()
 
 def home_city():
-    """MAYA_CITY if set, otherwise a one-time guess from your IP address."""
-    if os.environ.get("MAYA_CITY"):
-        return os.environ["MAYA_CITY"]
+    """ANAYA_CITY if set, otherwise a one-time guess from your IP address."""
+    if _env("CITY"):
+        return _env("CITY")
     if "city" not in _home_city_cache:
         try:
             _home_city_cache["city"] = _http_json("https://ipwho.is/").get("city") or ""
@@ -943,7 +952,7 @@ def _reminder_loop():
             print("Reminder loop error:", e)
 
 def start_reminder_thread():
-    """Start the background thread that fires due reminders (also catches ones that came due while Maya was off)."""
+    """Start the background thread that fires due reminders (also catches ones that came due while Anaya was off)."""
     global _reminder_thread
     if _reminder_thread is None or not _reminder_thread.is_alive():
         _reminder_thread = threading.Thread(target=_reminder_loop, daemon=True)
@@ -977,7 +986,7 @@ def handle_reminder_command(command):
 
 # -------------------- HANDS-FREE TEXT TOOLS (dictation, read aloud, translate, summarise) -------------------- #
 DICTATING = False
-MAX_READ_CHARS = 2000    # how much of the clipboard/selection Maya will read aloud
+MAX_READ_CHARS = 2000    # how much of the clipboard/selection Anaya will read aloud
 MAX_LLM_CHARS = 6000     # how much text is sent to the local model for translate/summarise
 
 _SPOKEN_PUNCTUATION = [
@@ -1105,7 +1114,7 @@ def handle_text_tools(raw, command):
 
 # -------------------- MORNING BRIEFING -------------------- #
 BRIEFING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_briefing.json")
-BRIEFING_COOLDOWN_HOURS = 4   # don't repeat the sign-in briefing if Maya restarts within this time
+BRIEFING_COOLDOWN_HOURS = 4   # don't repeat the sign-in briefing if Anaya restarts within this time
 
 def get_battery_text():
     if not IS_WINDOWS:
@@ -1169,12 +1178,12 @@ def run_briefing():
             break
 
 def maybe_start_morning_briefing():
-    """At startup (sign-in) give the briefing once, after a short delay so Wi-Fi is up. MAYA_BRIEFING=0 turns it off."""
-    if os.environ.get("MAYA_BRIEFING", "1") == "0" or not briefing_due():
+    """At startup (sign-in) give the briefing once, after a short delay so Wi-Fi is up. ANAYA_BRIEFING=0 turns it off."""
+    if _env("BRIEFING", "1") == "0" or not briefing_due():
         return
 
     def worker():
-        time.sleep(int(os.environ.get("MAYA_BRIEFING_DELAY", "12")))
+        time.sleep(int(_env("BRIEFING_DELAY", "12")))
         run_briefing()
 
     threading.Thread(target=worker, daemon=True).start()
@@ -1411,7 +1420,7 @@ def process_command(command):
             take_screenshot()
             speak("Screenshot taken")
 
-        elif "stop maya" in command:
+        elif re.search(r"\bstop (?:anaya|ananya|maya)\b", command):
             speak("Goodbye boss")
             raise SystemExit
       
@@ -1425,23 +1434,23 @@ def process_command(command):
         speak("Error boss")
 
 # -------------------- MAIN LOOP -------------------- #
-IDLE_LIMIT = 3  # empty listens in a row before Maya goes back to waiting for the wake word
+IDLE_LIMIT = 3  # empty listens in a row before Anaya goes back to waiting for the wake word
 
 def split_wake_word(text):
-    """Return (woke, command_after_wake_word). 'Maya open chrome' -> (True, 'open chrome')."""
-    match = re.search(r"\bmaya\b", text.lower())
+    """Return (woke, command_after_wake_word). 'Anaya open chrome' -> (True, 'open chrome')."""
+    match = re.search(r"\b(?:anaya|ananya|annaya|anaia|maya)\b", text.lower())
     if not match:
         return False, ""
     return True, text[match.end():].strip(" ,.!?")
 
-def start_maya():
+def start_anaya():
     # Show GIF in browser first
     show_startup_gif()
 
     load_whisper_async()
     start_reminder_thread()
     maybe_start_morning_briefing()
-    speak("Maya is activated")
+    speak("Anaya is activated")
 
     awake = False
     idle = 0
@@ -1466,7 +1475,7 @@ def start_maya():
                 idle += 1
                 if idle >= IDLE_LIMIT:
                     awake = False
-                    print("Maya is idle. Say 'Maya' to wake.")
+                    print("Anaya is idle. Say 'Anaya' to wake.")
                 continue
 
             idle = 0
@@ -1480,7 +1489,7 @@ def start_maya():
 
 # -------------------- PUSH TO TALK -------------------- #
 # Comma-separated list. Default: Right Ctrl or F9. "mouse:x2" / "mouse:x" = mouse side buttons (if your mouse reports them), anything else = keyboard key.
-PTT_KEYS = [k.strip().lower() for k in os.environ.get("MAYA_PTT_KEY", "right ctrl,f9").split(",") if k.strip()]
+PTT_KEYS = [k.strip().lower() for k in _env("PTT_KEY", "right ctrl,f9").split(",") if k.strip()]
 PTT_LABEL = " or ".join(("mouse side button" if k == "mouse:x2" else "mouse back button" if k == "mouse:x" else k.upper()) for k in PTT_KEYS)
 
 def ptt_held(keys=None):
@@ -1530,8 +1539,8 @@ def start_push_to_talk():
     start_reminder_thread()
     maybe_start_morning_briefing()
     show_startup_gif()
-    speak("Maya is ready. Hold the talk button and speak.")
-    print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")
+    speak("Anaya is ready. Hold the talk button and speak.")
+    print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop Anaya' or press Ctrl+C to quit.")
 
     while True:
         try:
@@ -1570,11 +1579,11 @@ def is_microphone_error(e):
 
 # -------------------- SINGLE INSTANCE & CRASH RECOVERY -------------------- #
 _instance_handles = []   # keeps the mutex alive for the life of the process
-INSTANCE_MUTEX_NAME = "Local\\MayaAI_SingleInstance"
+INSTANCE_MUTEX_NAME = "Local\\AnayaAI_SingleInstance"
 
 def acquire_single_instance():
-    """False if Maya is already running (two copies would both grab the talk key and answer twice)."""
-    if not IS_WINDOWS or os.environ.get("MAYA_ALLOW_MULTIPLE") == "1":
+    """False if Anaya is already running (two copies would both grab the talk key and answer twice)."""
+    if not IS_WINDOWS or _env("ALLOW_MULTIPLE") == "1":
         return True
     import ctypes
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -1600,17 +1609,17 @@ def supervise(target, max_crashes=5, window=600, sleep=time.sleep):
             crashes = [t for t in crashes if now - t < window] + [now]
             if len(crashes) >= max_crashes:
                 print("Too many crashes, giving up.")
-                speak("I keep crashing. Please check the Maya log.", offline=True)
+                speak("I keep crashing. Please check the Anaya log.", offline=True)
                 return False
             print(f"Restarting in {2 * len(crashes)}s (crash {len(crashes)})")
             sleep(2 * len(crashes))
 
 if __name__ == "__main__":
     if not acquire_single_instance():
-        print("Maya is already running. Exiting this copy.")
+        print("Anaya is already running. Exiting this copy.")
         sys.exit(0)
     try:
-        # MAYA_MODE=wake uses the "Maya" wake word; the default is hold-to-talk
-        supervise(start_maya if os.environ.get("MAYA_MODE", "ptt").lower() == "wake" else start_push_to_talk)
+        # ANAYA_MODE=wake uses the "Anaya" wake word; the default is hold-to-talk
+        supervise(start_anaya if _env("MODE", "ptt").lower() == "wake" else start_push_to_talk)
     except KeyboardInterrupt:
-        print("\nMaya AI stopped by user")
+        print("\nAnaya AI stopped by user")

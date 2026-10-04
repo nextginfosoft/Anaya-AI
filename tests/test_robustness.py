@@ -47,20 +47,20 @@ class TestSupervise:
             raise RuntimeError("always")
 
         assert main.supervise(target, max_crashes=3, sleep=lambda s: None) is False
-        assert said == ["I keep crashing. Please check the Maya log."]
+        assert said == ["I keep crashing. Please check the Anaya log."]
 
 
 # ---------------- single instance ----------------
 @pytest.mark.skipif(not main.IS_WINDOWS, reason="Windows mutex")
 def test_second_instance_is_refused(monkeypatch):
-    monkeypatch.setattr(main, "INSTANCE_MUTEX_NAME", "Local\\MayaTest_" + uuid.uuid4().hex)
-    monkeypatch.delenv("MAYA_ALLOW_MULTIPLE", raising=False)
+    monkeypatch.setattr(main, "INSTANCE_MUTEX_NAME", "Local\\AnayaTest_" + uuid.uuid4().hex)
+    monkeypatch.delenv("ANAYA_ALLOW_MULTIPLE", raising=False)
     assert main.acquire_single_instance() is True
     assert main.acquire_single_instance() is False
 
 
 def test_multiple_instances_can_be_allowed(monkeypatch):
-    monkeypatch.setenv("MAYA_ALLOW_MULTIPLE", "1")
+    monkeypatch.setenv("ANAYA_ALLOW_MULTIPLE", "1")
     assert main.acquire_single_instance() is True
     assert main.acquire_single_instance() is True
 
@@ -118,14 +118,14 @@ class FakeAudio:
 
 def test_rejected_audio_is_not_saved_by_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("MAYA_DEBUG_AUDIO", raising=False)
+    monkeypatch.delenv("ANAYA_DEBUG_AUDIO", raising=False)
     assert main.save_rejected_audio(FakeAudio()) is None
     assert not (tmp_path / "debug_audio").exists()
 
 
 def test_rejected_audio_kept_only_when_enabled_and_pruned(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MAYA_DEBUG_AUDIO", "1")
+    monkeypatch.setenv("ANAYA_DEBUG_AUDIO", "1")
     monkeypatch.setattr(main, "DEBUG_AUDIO_KEEP", 3)
     for _ in range(6):
         assert main.save_rejected_audio(FakeAudio())

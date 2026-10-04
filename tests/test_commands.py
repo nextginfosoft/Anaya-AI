@@ -1,4 +1,4 @@
-"""Tests for Maya's command parsing. Side effects (speech, volume keys, apps) are stubbed out."""
+"""Tests for Anaya's command parsing. Side effects (speech, volume keys, apps) are stubbed out."""
 import os
 import sys
 
@@ -10,7 +10,7 @@ import main  # noqa: E402
 
 @pytest.fixture
 def log(monkeypatch):
-    """Capture everything Maya would say or do instead of doing it."""
+    """Capture everything Anaya would say or do instead of doing it."""
     events = []
     monkeypatch.setattr(main, "speak", lambda t, **kw: events.append(f"say:{t}"))
     monkeypatch.setattr(main, "_press_media_key", lambda name, times=1: events.append(f"key:{name}x{times}"))
@@ -36,9 +36,9 @@ def test_normalize_command(raw, expected):
 
 
 @pytest.mark.parametrize("text, woke, rest", [
-    ("Maya", True, ""),
-    ("maya open chrome", True, "open chrome"),
-    ("Maya, search google for cats", True, "search google for cats"),
+    ("Anaya", True, ""),
+    ("anaya open chrome", True, "open chrome"),
+    ("Anaya, search google for cats", True, "search google for cats"),
     ("hello there", False, ""),
     ("Amaya", False, ""),
 ])
@@ -109,9 +109,9 @@ def test_search_google_opens_browser(log):
     assert "web:https://www.google.com/search?q=python" in log
 
 
-def test_stop_maya_exits(log):
+def test_stop_anaya_exits(log):
     with pytest.raises(SystemExit):
-        main.process_command("stop maya")
+        main.process_command("stop anaya")
 
 
 # ---------------- conversation memory ----------------

@@ -1,22 +1,22 @@
-# Maya AI — project notes for Claude
+# Anaya AI — project notes for Claude
 
-Voice assistant (Python, Windows + macOS). Hold a talk key, speak, Maya transcribes (Google Speech), runs a
+Voice assistant (Python, Windows + macOS). Hold a talk key, speak, Anaya transcribes (Google Speech), runs a
 command or asks a local Ollama model, and answers out loud. Single file: `main.py`.
 
 ## Run
 - `pip install -r requirements.txt` then `python main.py` (hold **Right Ctrl** or **F9** to talk).
-- Auto-start: a shortcut `Maya AI.lnk` in the Windows Startup folder runs `pythonw.exe main.py` (no console; logs to `maya.log`).
+- Auto-start: a shortcut `Anaya AI.lnk` in the Windows Startup folder runs `pythonw.exe main.py` (no console; logs to `anaya.log`).
 - Tests: `pip install -r requirements-dev.txt` then `python -m pytest tests -q` (side effects are stubbed).
 - Ollama must be running with the model in `OLLAMA_MODEL` (default `llama3.2:3b`).
 
 ## Environment variables
-`MAYA_MODE` (`ptt` default | `wake`), `MAYA_PTT_KEY` (default `right ctrl,f9`; `mouse:x2` supported),
-`MAYA_STOP_KEY` (default `esc`), `MAYA_MODEL`, `MAYA_MAX_TOKENS` (default 100), `MAYA_VOICE`, `MAYA_ANIMATION=1`, `MAYA_CITY` (default weather city), `MAYA_STT` (`whisper`|`google`), `MAYA_STT_FALLBACK` (`0` = never use Google), `MAYA_WHISPER_MODEL` (default `base`), `MAYA_TTS` (`edge`|`windows`), `MAYA_EDGE_VOICE`, `MAYA_DEBUG_AUDIO=1`, `MAYA_ALLOW_MULTIPLE=1`, `MAYA_BRIEFING` (`0` = no sign-in briefing), `MAYA_BRIEFING_DELAY` (seconds, default 12), `MAYA_LANG` (first recognition language, default `en-IN`).
+`ANAYA_MODE` (`ptt` default | `wake`), `ANAYA_PTT_KEY` (default `right ctrl,f9`; `mouse:x2` supported),
+`ANAYA_STOP_KEY` (default `esc`), `ANAYA_MODEL`, `ANAYA_MAX_TOKENS` (default 100), `ANAYA_VOICE`, `ANAYA_ANIMATION=1`, `ANAYA_CITY` (default weather city), `ANAYA_STT` (`whisper`|`google`), `ANAYA_STT_FALLBACK` (`0` = never use Google), `ANAYA_WHISPER_MODEL` (default `base`), `ANAYA_TTS` (`edge`|`windows`), `ANAYA_EDGE_VOICE`, `ANAYA_DEBUG_AUDIO=1`, `ANAYA_ALLOW_MULTIPLE=1`, `ANAYA_BRIEFING` (`0` = no sign-in briefing), `ANAYA_BRIEFING_DELAY` (seconds, default 12), `ANAYA_LANG` (first recognition language, default `en-IN`).
 
 ## Structure of main.py
 platform helpers → speech (`speak`, interruptible) → folder search → AI (`ask_local_ai`, short answers) →
 audio capture (`sounddevice`, **not** PyAudio — no wheel for Python 3.14) → `normalize_command` →
-`recognize_with_fallback` (en-IN then hi-IN) → `hindi_to_english` → `handle_text_tools` (dictation/read/translate/summarise; dictation mode is checked first on the raw text) → `handle_briefing_command` → `handle_custom_app` (apps.json) → `handle_info_command` (weather/news/Wikipedia) → `handle_reminder_command` (reminders.json + background thread) → `handle_system_command` (volume, brightness, lock, time, apps) → `process_command` → wake-word loop (`start_maya`)
+`recognize_with_fallback` (en-IN then hi-IN) → `hindi_to_english` → `handle_text_tools` (dictation/read/translate/summarise; dictation mode is checked first on the raw text) → `handle_briefing_command` → `handle_custom_app` (apps.json) → `handle_info_command` (weather/news/Wikipedia) → `handle_reminder_command` (reminders.json + background thread) → `handle_system_command` (volume, brightness, lock, time, apps) → `process_command` → wake-word loop (`start_anaya`)
 and push-to-talk loop (`start_push_to_talk`).
 
 ## Gotchas
@@ -27,5 +27,10 @@ and push-to-talk loop (`start_push_to_talk`).
 - `normalize_command` rewrites a leading "start"/"launch" to "open" — patterns for "start X" must also accept "open X".
 - Speech: private text (clipboard, selection, summaries) must call `speak(..., offline=True)`; plain `speak()` may use the online neural voice.
 - `__main__` = single-instance mutex + `supervise()` (restarts on crashes). Tests that import `main` do not trigger it.
-- `debug_audio/` (rejected clips), `screenshots/`, `maya.log`, `reminders.json`, `last_briefing.json` and `venv/` are git-ignored; `apps.json` is committed and user-editable.
+- `debug_audio/` (rejected clips), `screenshots/`, `anaya.log`, `reminders.json`, `last_briefing.json` and `venv/` are git-ignored; `apps.json` is committed and user-editable.
 - Shell: PowerShell/Git Bash on Windows. Commit messages: present tense. Never commit `.env`.
+
+## Naming and licence
+- The project was renamed from Maya AI (by Taha Shaikh) to Anaya AI (Santosh Pandit). Keep `LICENSE` (both copyright lines) and the README credit.
+- Settings are read through `_env(name)`: `ANAYA_<NAME>` first, then the legacy `MAYA_<NAME>`.
+- The local folder is still `D:\mayaagent`; that is only a directory name.

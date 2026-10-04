@@ -190,9 +190,9 @@ def test_briefing_command_speaks_and_stops_when_interrupted(desk, briefing_env):
 def test_startup_briefing_respects_off_switch(briefing_env, monkeypatch):
     started = []
     monkeypatch.setattr(main.threading, "Thread", lambda **k: started.append(k) or type("T", (), {"start": lambda s: None})())
-    monkeypatch.setenv("MAYA_BRIEFING", "0")
+    monkeypatch.setenv("ANAYA_BRIEFING", "0")
     main.maybe_start_morning_briefing()
     assert not started
-    monkeypatch.setenv("MAYA_BRIEFING", "1")
+    monkeypatch.setenv("ANAYA_BRIEFING", "1")
     main.maybe_start_morning_briefing()
     assert len(started) == 1
