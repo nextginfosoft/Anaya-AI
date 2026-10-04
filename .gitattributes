@@ -1,0 +1,5 @@
+# Never rewrite line endings in binary files (a PDF that is plain ASCII would otherwise be treated as text)
+*.pdf binary
+*.png binary
+*.gif binary
+*.mp3 binary
