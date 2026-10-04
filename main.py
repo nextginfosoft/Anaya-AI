@@ -137,11 +137,13 @@ def speak(text):
             script = (
                 "Add-Type -AssemblyName System.Speech;"
                 "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+                "try { if ($env:MAYA_VOICE) { $s.SelectVoice($env:MAYA_VOICE) } "
+                "else { $s.SelectVoiceByHints('Female','Adult',0,[Globalization.CultureInfo]'en-IN') } } catch {};"
                 "$s.Speak($env:MAYA_TEXT)"
             )
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", script],
-                env={**os.environ, "MAYA_TEXT": text},
+                env={**os.environ, "MAYA_TEXT": text},  # MAYA_VOICE overrides the voice, e.g. "Microsoft Zira Desktop"
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
         elif IS_MAC:
