@@ -5,12 +5,14 @@ import os
 import re
 import sys
 import time
+import json
+import threading
 import shutil
 from pathlib import Path
 import pywhatkit
 import ollama
 import pyautogui
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Under pythonw (auto-start at login) there is no console: log to maya.log instead
 if sys.stdout is None or sys.stderr is None:
@@ -150,7 +152,13 @@ def stop_requested():
     except Exception:
         return False
 
+_speak_lock = threading.Lock()  # reminders speak from a background thread; never talk over each other
+
 def speak(text):
+    with _speak_lock:
+        _speak(text)
+
+def _speak(text):
     try:
         print("maya:", text)
         if IS_WINDOWS:
@@ -412,6 +420,157 @@ def normalize_command(command):
     command = re.sub(r"\bplease\b", "", command)
     return re.sub(r"\s+", " ", command).strip()
 
+# -------------------- REMINDERS & TIMERS -------------------- #
+import json
+import threading
+
+REMINDERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reminders.json")
+_reminder_lock = threading.Lock()
+_reminder_thread = None
+
+_NUMBER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30,
+    "forty": 40, "forty five": 45, "sixty": 60,
+}
+_UNIT_SECONDS = {"second": 1, "sec": 1, "minute": 60, "min": 60, "hour": 3600, "hr": 3600}
+
+def parse_duration(text):
+    """'10 minutes', 'an hour', 'half an hour', '1 hour 30 minutes' -> seconds (None if no duration found)."""
+    text = text.lower()
+    if re.search(r"\bhalf an? hour\b", text):
+        return 1800
+    total, found = 0, False
+    number = r"(\d+(?:\.\d+)?|" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)) + r")"
+    for m in re.finditer(number + r"\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", text):
+        raw, unit = m.group(1), re.sub(r"s$", "", m.group(2))
+        value = float(raw) if raw[0].isdigit() else _NUMBER_WORDS[raw]
+        total += value * _UNIT_SECONDS[unit]
+        found = True
+    return int(total) if found else None
+
+def parse_clock_time(text, now=None):
+    """'at 6 pm', 'at 6:30 pm', 'at 18:30' -> epoch seconds of the next such time (None if not found)."""
+    now = now or datetime.now()
+    m = re.search(r"\bat (\d{1,2})(?::(\d{2}))?\s*(a m|p m|am|pm)?\b", text.lower())
+    if not m:
+        return None
+    hour, minute, ampm = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").replace(" ", "")
+    if ampm == "pm" and hour < 12:
+        hour += 12
+    if ampm == "am" and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        return None
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target = target + timedelta(days=1)
+    return target.timestamp()
+
+def parse_reminder_command(command, now=None):
+    """Return (due_epoch, message) for timer/reminder phrases, or None if the command isn't one."""
+    now_ts = (now or datetime.now()).timestamp()
+    c = command.lower()
+
+    if re.search(r"\btimer\b", c) and re.search(r"\b(set|start)\b|\btimer for\b", c):
+        seconds = parse_duration(c)
+        return (now_ts + seconds, "Your timer is done") if seconds else None
+
+    if re.search(r"\bremind me\b", c):
+        due = None
+        seconds = parse_duration(c)
+        if seconds is not None:
+            due = now_ts + seconds
+        else:
+            due = parse_clock_time(c, now)
+        if due is None:
+            return None
+        msg = re.sub(r"^.*?\bremind me\b", "", c)
+        msg = re.sub(r"\b(in|after)\s+(\d+(?:\.\d+)?|[a-z ]+?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", "", msg)
+        msg = re.sub(r"\bhalf an? hour\b", "", msg)
+        msg = re.sub(r"\bat \d{1,2}(?::\d{2})?\s*(a m|p m|am|pm)?\b", "", msg)
+        msg = re.sub(r"^\s*(to|that|about)\s+", "", msg.strip())
+        msg = re.sub(r"\s+", " ", msg).strip()
+        return due, (msg or "your reminder")
+    return None
+
+def _load_reminders():
+    try:
+        with open(REMINDERS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_reminders(items):
+    try:
+        with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(items, f)
+    except Exception as e:
+        print("Reminder save error:", e)
+
+def add_reminder(due, text):
+    with _reminder_lock:
+        items = _load_reminders()
+        items.append({"due": due, "text": text})
+        _save_reminders(items)
+
+def describe_delay(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return f"{seconds} seconds"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} minutes"
+    return f"{seconds / 3600:.1f} hours"
+
+def _reminder_loop():
+    while True:
+        time.sleep(1)
+        try:
+            with _reminder_lock:
+                items = _load_reminders()
+                now = time.time()
+                due = [i for i in items if i["due"] <= now]
+                if due:
+                    _save_reminders([i for i in items if i["due"] > now])
+            for item in due:
+                beep(1000)
+                speak(item["text"] if item["text"].startswith("Your") else f"Reminder: {item['text']}")
+        except Exception as e:
+            print("Reminder loop error:", e)
+
+def start_reminder_thread():
+    """Start the background thread that fires due reminders (also catches ones that came due while Maya was off)."""
+    global _reminder_thread
+    if _reminder_thread is None or not _reminder_thread.is_alive():
+        _reminder_thread = threading.Thread(target=_reminder_loop, daemon=True)
+        _reminder_thread.start()
+
+def handle_reminder_command(command):
+    """Returns True if the command was a reminder/timer command."""
+    if re.search(r"\b(cancel|clear|delete|remove)\b.*\b(reminders?|timers?)\b", command):
+        with _reminder_lock:
+            _save_reminders([])
+        speak("All reminders cancelled")
+        return True
+    if re.search(r"\b(list|what are|show)\b.*\b(my )?(reminders?|timers?)\b|\bany reminders\b", command):
+        with _reminder_lock:
+            items = sorted(_load_reminders(), key=lambda i: i["due"])
+        if not items:
+            speak("You have no reminders")
+        else:
+            now = time.time()
+            parts = [f"{i['text']} in {describe_delay(i['due'] - now)}" for i in items[:5]]
+            speak(f"You have {len(items)} reminder" + ("s" if len(items) > 1 else "") + ". " + ". ".join(parts))
+        return True
+    parsed = parse_reminder_command(command)
+    if parsed:
+        due, text = parsed
+        add_reminder(due, text)
+        speak(f"Okay boss, I will remind you in {describe_delay(due - time.time())}" if not text.startswith("Your")
+              else f"Timer set for {describe_delay(due - time.time())}")
+        return True
+    return False
+
 # -------------------- WINDOWS SYSTEM COMMANDS -------------------- #
 def _press_media_key(name, times=1):
     import keyboard
@@ -541,6 +700,9 @@ def process_command(command):
             speak("Okay boss, starting fresh")
             return
 
+        if handle_reminder_command(command):
+            return
+
         if handle_system_command(command):
             return
 
@@ -628,6 +790,7 @@ def start_maya():
     # Show GIF in browser first
     show_startup_gif()
 
+    start_reminder_thread()
     speak("Maya is activated")
 
     awake = False
@@ -713,6 +876,7 @@ def record_while_held(rate=16000, max_seconds=15):
     return frames_to_audio(frames, rate)
 
 def start_push_to_talk():
+    start_reminder_thread()
     show_startup_gif()
     speak("Maya is ready. Hold the talk button and speak.")
     print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")

@@ -152,3 +152,78 @@ class TestMemory:
         main.HISTORY.extend([{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}])
         main.process_command("forget that")
         assert not main.HISTORY
+
+
+# ---------------- reminders & timers ----------------
+from datetime import datetime  # noqa: E402
+
+
+@pytest.mark.parametrize("text, seconds", [
+    ("10 minutes", 600), ("an hour", 3600), ("half an hour", 1800), ("1 hour 30 minutes", 5400),
+    ("30 seconds", 30), ("five minutes", 300), ("2 hours", 7200), ("hello", None),
+])
+def test_parse_duration(text, seconds):
+    assert main.parse_duration(text) == seconds
+
+
+def test_parse_clock_time_picks_next_occurrence():
+    now = datetime(2026, 10, 4, 15, 0)
+    assert datetime.fromtimestamp(main.parse_clock_time("at 6 pm", now)) == datetime(2026, 10, 4, 18, 0)
+    assert datetime.fromtimestamp(main.parse_clock_time("at 9 am", now)) == datetime(2026, 10, 5, 9, 0)
+    assert datetime.fromtimestamp(main.parse_clock_time("at 18:30", now)) == datetime(2026, 10, 4, 18, 30)
+    assert main.parse_clock_time("no time here", now) is None
+
+
+@pytest.mark.parametrize("phrase, delay, message", [
+    ("remind me in 10 minutes to call raj", 600, "call raj"),
+    ("remind me to call raj in 10 minutes", 600, "call raj"),
+    ("set a timer for 5 minutes", 300, "Your timer is done"),
+    ("remind me in an hour to take medicine", 3600, "take medicine"),
+])
+def test_parse_reminder_command(phrase, delay, message):
+    now = datetime(2026, 10, 4, 12, 0)
+    due, msg = main.parse_reminder_command(phrase, now)
+    assert due - now.timestamp() == delay
+    assert msg == message
+
+
+def test_parse_reminder_command_clock():
+    now = datetime(2026, 10, 4, 12, 0)
+    due, msg = main.parse_reminder_command("remind me at 6 pm to call mom", now)
+    assert datetime.fromtimestamp(due) == datetime(2026, 10, 4, 18, 0) and msg == "call mom"
+
+
+def test_non_reminder_phrases_are_ignored():
+    assert main.parse_reminder_command("who wrote hamlet") is None
+    assert main.parse_reminder_command("remind me to breathe") is None  # no time given
+
+
+class TestReminderStorage:
+    @pytest.fixture(autouse=True)
+    def temp_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(main, "REMINDERS_FILE", str(tmp_path / "reminders.json"))
+
+    def test_set_list_and_cancel(self, log):
+        main.process_command("remind me in 10 minutes to call raj")
+        assert len(main._load_reminders()) == 1
+        main.process_command("what are my reminders")
+        assert any("call raj" in e for e in log if e.startswith("say:You have"))
+        main.process_command("cancel all reminders")
+        assert main._load_reminders() == []
+
+    def test_due_reminder_is_spoken_and_removed(self, log, monkeypatch):
+        main.add_reminder(0, "call raj")           # already due
+        main.add_reminder(9e12, "far future")
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) > 1:                    # allow exactly one pass through the loop
+                raise StopIteration
+
+        monkeypatch.setattr(main.time, "sleep", fake_sleep)
+        monkeypatch.setattr(main, "beep", lambda f: None)
+        with pytest.raises(StopIteration):
+            main._reminder_loop()
+        assert "say:Reminder: call raj" in log
+        assert [r["text"] for r in main._load_reminders()] == ["far future"]
