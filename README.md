@@ -8,6 +8,12 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 
 ---
 
+# 📘 Documentation
+
+A printable feature guide is in [docs/Maya_AI_Features.pdf](docs/Maya_AI_Features.pdf).
+
+---
+
 # ✨ Features
 
 - 🎤 Voice Recognition
