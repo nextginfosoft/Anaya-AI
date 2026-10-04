@@ -2,6 +2,7 @@ import speech_recognition as sr
 import subprocess
 import webbrowser
 import os
+import re
 import sys
 import shutil
 from pathlib import Path
@@ -223,7 +224,7 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
     # Calibrate on ambient noise
     ambient = sd.rec(int(rate * 0.5), samplerate=rate, channels=1, dtype="int16")
     sd.wait()
-    threshold = max(float(np.abs(ambient).mean()) * 3, 300.0)
+    threshold = max(float(np.abs(ambient).mean()) * 3, 40.0)
 
     frames, started, silent_chunks = [], False, 0
     waited, spoken = 0.0, 0.0
@@ -244,7 +245,12 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
                 silent_chunks = 0 if loud else silent_chunks + 1
                 if silent_chunks >= 8 or spoken >= phrase_time:
                     break
-    return sr.AudioData(np.concatenate(frames).tobytes(), rate, 2)
+    samples = np.concatenate(frames).astype(np.float32)
+    peak = float(np.abs(samples).max())
+    if peak > 0:
+        # Quiet laptop mics: boost to a usable level (capped so noise isn't amplified absurdly)
+        samples *= min(20000.0 / peak, 60.0)
+    return sr.AudioData(samples.astype(np.int16).tobytes(), rate, 2)
 
 def listen_command(timeout=5, phrase_time=6):
     try:
@@ -252,8 +258,14 @@ def listen_command(timeout=5, phrase_time=6):
         audio = record_phrase(timeout, phrase_time)
         if audio is None:
             return ""
-        return recognizer.recognize_google(audio, language="en-IN")
-    except Exception:
+        text = recognizer.recognize_google(audio, language="en-IN")
+        print("Heard:", text)
+        return text
+    except sr.UnknownValueError:
+        print("Heard speech but could not understand it")
+        return ""
+    except Exception as e:
+        print("Listen Error:", e)
         return ""
 
 def play_song(command):
@@ -284,8 +296,17 @@ def take_screenshot():
     return file_path
 
 # -------------------- COMMAND PROCESSOR -------------------- #
+def normalize_command(command):
+    """Lowercase, drop punctuation and polite filler so 'Please open the Chrome' matches 'open chrome'."""
+    command = re.sub(r"[^\w\s]", " ", command.lower())
+    command = re.sub(r"^(?:(?:hey|ok|okay|please|kindly|can you|could you|will you|would you)\s+)+", "", command.strip())
+    command = re.sub(r"^(?:launch|start)\s+", "open ", command)
+    command = re.sub(r"^open\s+(?:up\s+)?(?:the\s+|my\s+|a\s+)?", "open ", command)
+    command = re.sub(r"\bplease\b", "", command)
+    return re.sub(r"\s+", " ", command).strip()
+
 def process_command(command):
-    command = command.lower().strip()
+    command = normalize_command(command)
 
     try:
         if "open visual studio code" in command or "open vs code" in command:
@@ -359,31 +380,55 @@ def process_command(command):
         speak("Error boss")
 
 # -------------------- MAIN LOOP -------------------- #
+IDLE_LIMIT = 3  # empty listens in a row before Maya goes back to waiting for the wake word
+
+def split_wake_word(text):
+    """Return (woke, command_after_wake_word). 'Maya open chrome' -> (True, 'open chrome')."""
+    match = re.search(r"\bmaya\b", text.lower())
+    if not match:
+        return False, ""
+    return True, text[match.end():].strip(" ,.!?")
+
 def start_maya():
     # Show GIF in browser first
     show_startup_gif()
-    
+
     speak("Maya is activated")
+
+    awake = False
+    idle = 0
 
     while True:
         try:
-            word = listen_command(timeout=5, phrase_time=3)
+            text = listen_command(timeout=5, phrase_time=8 if awake else 6)
 
-            if not word:
-                continue
-
-            if "maya" in word.lower():
-                speak("Yes boss")
-
-                command = listen_command(timeout=7, phrase_time=8)
-
+            if not awake:
+                woke, command = split_wake_word(text) if text else (False, "")
+                if not woke:
+                    continue
+                awake, idle = True, 0
                 if command:
                     process_command(command)
+                else:
+                    speak("Yes boss")
+                continue
+
+            # Awake: accept follow-up commands without the wake word
+            if not text:
+                idle += 1
+                if idle >= IDLE_LIMIT:
+                    awake = False
+                    print("Maya is idle. Say 'Maya' to wake.")
+                continue
+
+            idle = 0
+            _, command = split_wake_word(text)
+            process_command(command or text)
 
         except SystemExit:
             break
-        except:
-            pass
+        except Exception as e:
+            print("Loop Error:", e)
 
 if __name__ == "__main__":
     try:
