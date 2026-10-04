@@ -20,6 +20,9 @@ for _stream in (sys.stdout, sys.stderr):
 
 recognizer = sr.Recognizer()
 
+# Local Ollama model used for chat answers (override with the MAYA_MODEL env var)
+OLLAMA_MODEL = os.environ.get("MAYA_MODEL", "llama3.2:3b")
+
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 
@@ -206,7 +209,7 @@ def open_folder_anywhere(foldername):
 def ask_local_ai(prompt):
     try:
         response = ollama.chat(
-            model="llama3",
+            model=OLLAMA_MODEL,
             messages=[{"role": "user", "content": prompt}]
         )
         return response["message"]["content"]

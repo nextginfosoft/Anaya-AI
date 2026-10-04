@@ -11,7 +11,7 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 # ✨ Features
 
 - 🎤 Voice Recognition
-- 🤖 Local AI Chat using Ollama (Llama 3)
+- 🤖 Local AI Chat using Ollama (Llama 3.2 3B)
 - 🗣️ Text-to-Speech Responses
 - 💻 Open Visual Studio Code
 - 🌐 Open Google Chrome
@@ -73,7 +73,7 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 - Python 3.10 or later
 - Windows 10/11 or macOS
 - Ollama Installed
-- Llama 3 Model Installed
+- Llama 3.2 (3B) Model Installed (`ollama pull llama3.2:3b`)
 - Working Microphone
 - Internet Connection (for online features)
 
