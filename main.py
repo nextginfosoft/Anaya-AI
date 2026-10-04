@@ -71,7 +71,9 @@ def open_app(mac_name, win_candidates, fallback_url=None):
 GIF_PATH = "maya_animation.gif"  # Change this to your GIF filename
 
 def show_startup_gif():
-    """Show GIF animation in browser"""
+    """Show GIF animation in browser (off by default; set MAYA_ANIMATION=1 to enable)"""
+    if os.environ.get("MAYA_ANIMATION", "0") != "1":
+        return
     try:
         # Get absolute path
         gif_absolute_path = os.path.abspath(GIF_PATH)
