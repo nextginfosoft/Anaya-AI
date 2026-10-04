@@ -17,6 +17,11 @@ A single desktop user who wants quick spoken commands and short answers without 
 | System | Volume, brightness, lock screen, time/date/battery, Notepad/Calculator/Settings/etc., screenshots. |
 | Folders | "Open folder downloads" etc. |
 | AI chat | Local Ollama model (`llama3.2:3b`), answers limited to ~2 sentences. |
+| Memory | Remembers the last 6 exchanges for follow-up questions; resets after 5 quiet minutes or "forget that". |
+| Reminders | "Remind me in 10 minutes to…", "set a timer for 5 minutes", at a clock time; stored in `reminders.json`, survive restarts. |
+| Live info | Weather (Open-Meteo), news (Google News RSS), "who is / tell me about" (Wikipedia). |
+| Hindi | Falls back to Hindi recognition automatically; "switch to Hindi/English"; core commands work in Hindi/Hinglish; replies stay English. |
+| App list | `apps.json` maps spoken names to URLs, paths or programs; edits apply immediately. |
 | Startup | Auto-starts at Windows sign-in (Startup-folder shortcut), logs to `maya.log`. |
 
 ## Non-goals / safety
@@ -26,12 +31,11 @@ A single desktop user who wants quick spoken commands and short answers without 
 
 ## Known limitations
 - Laptop mic is very quiet; a headset/USB mic or higher Windows input level improves accuracy a lot.
-- English (Indian) recognition only; Hindi/Hinglish is unreliable.
-- No conversation memory (each question is answered in isolation).
+- Hindi: only the commands in `_HINDI_WORDS` / `_HINDI_PHRASES` are understood; open questions in Hindi go to a small English-centred model, and replies are spoken in English.
+- Weather without a city uses an IP-based location guess (set `MAYA_CITY` to fix it).
+- Reminders fire only while Maya is running.
 
-## Backlog (priority order)
-1. Conversation memory (last few turns, reset after idle).
-2. Reminders and timers.
-3. Live info (weather, quick web answers).
-4. Hindi/Hinglish recognition.
-5. Configurable app list file instead of editing code.
+## Backlog
+1. Confirmation step, then shutdown/restart/sleep by voice.
+2. Spoken Hindi replies (needs a Hindi TTS voice).
+3. Calendar / email integrations.

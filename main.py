@@ -422,6 +422,49 @@ def normalize_command(command):
     command = re.sub(r"\bplease\b", "", command)
     return re.sub(r"\s+", " ", command).strip()
 
+# -------------------- CUSTOM APP LIST (apps.json) -------------------- #
+APPS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps.json")
+
+def load_custom_apps():
+    """{"spoken name": "launcher"}. A launcher is a URL, a URI scheme (spotify:), a file/folder path or a command on PATH."""
+    try:
+        with open(APPS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return {k.strip().lower(): v for k, v in data.items() if not k.startswith("_") and isinstance(v, str)}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print("apps.json error:", e)
+        return {}
+
+def launch_custom_app(launcher):
+    launcher = os.path.expandvars(launcher)
+    if launcher.lower().startswith(("http://", "https://")):
+        webbrowser.open(launcher)
+    elif IS_WINDOWS and (launcher.endswith(":") or os.path.exists(launcher)):
+        os.startfile(launcher)
+    elif shutil.which(launcher):
+        subprocess.Popen([shutil.which(launcher)])
+    else:
+        open_path(launcher)
+
+def handle_custom_app(command):
+    """'open <name>' for any name listed in apps.json. Returns True if handled."""
+    if not command.startswith("open "):
+        return False
+    strip_filler = lambda n: re.sub(r"^(?:the|my|a)\s+", "", n.strip())   # same filler normalize_command drops
+    name = strip_filler(command[5:])
+    apps = {strip_filler(k): v for k, v in load_custom_apps().items()}
+    if name not in apps:
+        return False
+    speak(f"Opening {name}")
+    try:
+        launch_custom_app(apps[name])
+    except Exception as e:
+        print("Custom app error:", e)
+        speak("I could not open it")
+    return True
+
 # -------------------- HINDI / HINGLISH -------------------- #
 # Recognition tries the main language first and, if Google can't make sense of the audio, the second one.
 RECOG_LANGS = {"en": "en-IN", "hi": "hi-IN"}
@@ -875,6 +918,9 @@ def process_command(command):
             return
 
         if handle_info_command(command):
+            return
+
+        if handle_custom_app(command):
             return
 
         if handle_system_command(command):

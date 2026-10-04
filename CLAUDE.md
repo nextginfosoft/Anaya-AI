@@ -11,17 +11,18 @@ command or asks a local Ollama model, and answers out loud. Single file: `main.p
 
 ## Environment variables
 `MAYA_MODE` (`ptt` default | `wake`), `MAYA_PTT_KEY` (default `right ctrl,f9`; `mouse:x2` supported),
-`MAYA_STOP_KEY` (default `esc`), `MAYA_MODEL`, `MAYA_MAX_TOKENS` (default 100), `MAYA_VOICE`, `MAYA_ANIMATION=1`.
+`MAYA_STOP_KEY` (default `esc`), `MAYA_MODEL`, `MAYA_MAX_TOKENS` (default 100), `MAYA_VOICE`, `MAYA_ANIMATION=1`, `MAYA_CITY` (default weather city), `MAYA_LANG` (first recognition language, default `en-IN`).
 
 ## Structure of main.py
 platform helpers → speech (`speak`, interruptible) → folder search → AI (`ask_local_ai`, short answers) →
 audio capture (`sounddevice`, **not** PyAudio — no wheel for Python 3.14) → `normalize_command` →
-`handle_system_command` (volume, brightness, lock, time, apps) → `process_command` → wake-word loop (`start_maya`)
+`recognize_with_fallback` (en-IN then hi-IN) → `hindi_to_english` → `handle_custom_app` (apps.json) → `handle_info_command` (weather/news/Wikipedia) → `handle_reminder_command` (reminders.json + background thread) → `handle_system_command` (volume, brightness, lock, time, apps) → `process_command` → wake-word loop (`start_maya`)
 and push-to-talk loop (`start_push_to_talk`).
 
 ## Gotchas
 - Commands are lower-cased and de-fluffed by `normalize_command` before matching; match on the normalized text.
 - This laptop's mic is very quiet (raw peaks ~300–1500). Audio is boosted up to 40x in `frames_to_audio`.
 - Don't add shutdown/restart voice commands without a confirmation step (misheard speech).
-- `debug_audio/` (rejected clips), `screenshots/`, `maya.log` and `venv/` are git-ignored.
+- Write patches with the Edit/Write tools, not shell heredocs: shell layers mangle backslashes in regexes and JSON paths (twice produced backspace characters).
+- `debug_audio/` (rejected clips), `screenshots/`, `maya.log`, `reminders.json` and `venv/` are git-ignored; `apps.json` is committed and user-editable.
 - Shell: PowerShell/Git Bash on Windows. Commit messages: present tense. Never commit `.env`.
