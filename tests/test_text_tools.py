@@ -24,7 +24,7 @@ class Desktop:
 def desk(monkeypatch):
     d = Desktop()
     monkeypatch.setattr(main, "_clip_get", lambda: d.clipboard)
-    monkeypatch.setattr(main, "_clip_set", lambda t: setattr(d, "clipboard", t) or True)
+    monkeypatch.setattr(main, "_clip_set", lambda t, **kw: setattr(d, "clipboard", t) or True)
     monkeypatch.setattr(main.time, "sleep", lambda s: None)
 
     import keyboard
@@ -36,7 +36,7 @@ def desk(monkeypatch):
             d.typed.append(d.clipboard)
 
     monkeypatch.setattr(keyboard, "send", send)
-    monkeypatch.setattr(main, "speak", lambda t: d.said.append(t) or False)
+    monkeypatch.setattr(main, "speak", lambda t, **kw: d.said.append(t) or False)
     monkeypatch.setattr(main, "ask_local_ai", lambda c: f"ai:{c}")
     monkeypatch.setattr(main, "DICTATING", False)
     yield d
@@ -182,7 +182,7 @@ def test_cooldown(briefing_env):
 
 def test_briefing_command_speaks_and_stops_when_interrupted(desk, briefing_env):
     spoken = []
-    main.speak = lambda t: spoken.append(t) or len(spoken) == 2     # 'interrupt' after the second line
+    main.speak = lambda t, **kw: spoken.append(t) or len(spoken) == 2     # 'interrupt' after the second line
     main.process_command("give me my briefing")
     assert len(spoken) == 2
 

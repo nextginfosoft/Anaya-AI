@@ -154,14 +154,76 @@ def stop_requested():
 
 _speak_lock = threading.Lock()  # reminders speak from a background thread; never talk over each other
 
-def speak(text):
-    """Speak `text`. Returns True if you interrupted her (Esc / talk key)."""
-    with _speak_lock:
-        return bool(_speak(text))
+# -------------------- VOICE -------------------- #
+# MAYA_TTS=edge (default): Microsoft neural voices, natural-sounding, needs internet and sends the spoken TEXT to Microsoft.
+# MAYA_TTS=windows: the robotic offline Windows voice. Private content (clipboard, summaries) always uses the offline voice.
+TTS_ENGINE = os.environ.get("MAYA_TTS", "edge").lower()
+EDGE_VOICE_EN = os.environ.get("MAYA_EDGE_VOICE", "en-IN-NeerjaNeural")
+EDGE_VOICE_HI = os.environ.get("MAYA_EDGE_VOICE_HI", "hi-IN-SwaraNeural")
 
-def _speak(text):
+def _mci(command):
+    import ctypes
+    buf = ctypes.create_unicode_buffer(255)
+    ctypes.windll.winmm.mciSendStringW(command, buf, 254, 0)
+    return buf.value
+
+def synthesize_edge(text, path):
+    """Write `text` as an mp3 using a neural voice (Hindi voice if the text is in Devanagari)."""
+    import asyncio
+    import edge_tts
+    voice = EDGE_VOICE_HI if re.search(r"[ऀ-ॿ]", text) else EDGE_VOICE_EN
+
+    async def run():
+        await asyncio.wait_for(edge_tts.Communicate(text, voice).save(path), timeout=12)
+
+    asyncio.run(run())
+
+def _speak_edge(text):
+    """Speak with the neural voice. Returns True/False for interrupted, or None if it couldn't (offline etc.)."""
+    import tempfile
+    path = os.path.join(tempfile.gettempdir(), f"maya_tts_{os.getpid()}_{threading.get_ident()}.mp3")
     try:
-        print("maya:", text)
+        synthesize_edge(text, path)
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return None
+        _mci("close maya_tts")
+        _mci(f'open "{path}" type mpegvideo alias maya_tts')
+        _mci("play maya_tts")
+        started = time.time()
+        interrupted = False
+        while _mci("status maya_tts mode") == "playing":
+            if time.time() - started > 0.4 and stop_requested():
+                _mci("stop maya_tts")
+                print("(interrupted)")
+                interrupted = True
+                break
+            time.sleep(0.05)
+        return interrupted
+    except Exception as e:
+        print("Neural voice unavailable, using the Windows voice:", e)
+        return None
+    finally:
+        _mci("close maya_tts")
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+def speak(text, offline=False):
+    """Speak `text`. Returns True if you interrupted her (Esc / talk key). offline=True forces the local voice."""
+    with _speak_lock:
+        return bool(_speak(text, offline))
+
+def _speak(text, offline=False):
+    print("maya:", text)
+    if IS_WINDOWS and TTS_ENGINE == "edge" and not offline:
+        interrupted = _speak_edge(text)
+        if interrupted is not None:
+            return interrupted
+    return _speak_system(text)
+
+def _speak_system(text):
+    try:
         if IS_WINDOWS:
             # Pass text via environment variable to avoid shell-quoting problems
             script = (
@@ -967,7 +1029,7 @@ def handle_text_tools(raw, command):
         if not text:
             speak("There is nothing to read")
         else:
-            speak(text[:MAX_READ_CHARS])
+            speak(text[:MAX_READ_CHARS], offline=True)      # your clipboard/selection never goes to an online voice
         return True
 
     m = re.match(r"^translate\b.*?\bto (" + "|".join(_TRANSLATE_TARGETS) + r")$", command)
@@ -981,7 +1043,10 @@ def handle_text_tools(raw, command):
         result = llm_once(f"Translate the user's text into {language}. Output only the translation, nothing else.", text, 500)
         _clip_set(result)
         # The installed voice only speaks English, so other languages go to the clipboard instead.
-        speak(result[:MAX_READ_CHARS] if language == "English" else f"The {language} translation is on your clipboard")
+        if language == "English":
+            speak(result[:MAX_READ_CHARS], offline=True)
+        else:
+            speak(f"The {language} translation is on your clipboard")
         return True
 
     if re.match(r"^(summari[sz]e|sum up)\b", command) and (wants_clipboard or wants_selection):
@@ -991,7 +1056,7 @@ def handle_text_tools(raw, command):
             return True
         speak("Summarising")
         summary = llm_once("Summarise the user's text in at most two short spoken sentences. Plain text only, no lists.", text, 120)
-        speak(clean_for_speech(summary) or "I could not summarise that")
+        speak(clean_for_speech(summary) or "I could not summarise that", offline=True)
         return True
     return False
 

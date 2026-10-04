@@ -12,7 +12,7 @@ import main  # noqa: E402
 @pytest.fixture
 def log(monkeypatch):
     events = []
-    monkeypatch.setattr(main, "speak", lambda t: events.append(f"say:{t}"))
+    monkeypatch.setattr(main, "speak", lambda t, **kw: events.append(f"say:{t}"))
     monkeypatch.setattr(main, "ask_local_ai", lambda c: f"ai:{c}")
     monkeypatch.setattr(main.os, "startfile", lambda x: events.append(f"start:{x}"), raising=False)
     monkeypatch.setattr(main.webbrowser, "open", lambda u, *a, **k: events.append(f"web:{u}"))

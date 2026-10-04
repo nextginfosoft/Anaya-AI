@@ -12,7 +12,7 @@ import main  # noqa: E402
 def log(monkeypatch):
     """Capture everything Maya would say or do instead of doing it."""
     events = []
-    monkeypatch.setattr(main, "speak", lambda t: events.append(f"say:{t}"))
+    monkeypatch.setattr(main, "speak", lambda t, **kw: events.append(f"say:{t}"))
     monkeypatch.setattr(main, "_press_media_key", lambda name, times=1: events.append(f"key:{name}x{times}"))
     monkeypatch.setattr(main, "_get_brightness", lambda: 60)
     monkeypatch.setattr(main, "_set_brightness", lambda lvl: events.append(f"bright:{lvl}") or lvl)
