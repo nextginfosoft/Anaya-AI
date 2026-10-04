@@ -16,7 +16,13 @@ from datetime import datetime, timedelta
 
 # Under pythonw (auto-start at login) there is no console: log to maya.log instead
 if sys.stdout is None or sys.stderr is None:
-    _log = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "maya.log"), "a", encoding="utf-8", buffering=1)
+    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maya.log")
+    try:
+        if os.path.getsize(_log_path) > 1_000_000:      # keep the log from growing forever
+            os.replace(_log_path, _log_path + ".1")
+    except OSError:
+        pass
+    _log = open(_log_path, "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
 
@@ -355,7 +361,16 @@ def ask_local_ai(prompt):
         return reply
     except Exception as e:
         print("Ollama Error:", e)
-        return "Sorry boss, AI is not responding."
+        return explain_ollama_error(e)
+
+def explain_ollama_error(e):
+    """Say what is actually wrong instead of a generic failure."""
+    text = str(e).lower()
+    if isinstance(e, ConnectionError) or "connect" in text:
+        return "The AI is not running. Please start Ollama."
+    if getattr(e, "status_code", None) == 404 or "not found" in text:
+        return f"The AI model {OLLAMA_MODEL} is not installed. Run ollama pull {OLLAMA_MODEL}."
+    return "Sorry boss, the AI had a problem."
 
 def frames_to_audio(frames, rate=16000, max_gain=40.0, loud_chunks=0):
     """Join recorded int16 chunks into sr.AudioData, boosting quiet mics up to max_gain."""
@@ -421,6 +436,25 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
                         return None
     return frames_to_audio(frames, rate, MAX_GAIN, loud_chunks)
 
+DEBUG_AUDIO_KEEP = 30
+
+def save_rejected_audio(audio):
+    """Off by default (it stores recordings of your voice). MAYA_DEBUG_AUDIO=1 keeps the last 30 rejected clips."""
+    if os.environ.get("MAYA_DEBUG_AUDIO", "0") != "1":
+        return None
+    try:
+        os.makedirs("debug_audio", exist_ok=True)
+        name = f"debug_audio/reject_{datetime.now().strftime('%H-%M-%S-%f')}.wav"
+        with open(name, "wb") as f:
+            f.write(audio.get_wav_data())
+        clips = sorted(os.path.join("debug_audio", n) for n in os.listdir("debug_audio") if n.endswith(".wav"))
+        for old in clips[:-DEBUG_AUDIO_KEEP]:
+            os.remove(old)
+        return name
+    except Exception as e:
+        print("Could not save debug audio:", e)
+        return None
+
 def listen_command(timeout=5, phrase_time=6):
     try:
         print("Listening...")
@@ -433,16 +467,8 @@ def listen_command(timeout=5, phrase_time=6):
         print(f"Heard ({LAST_ENGINE}):", text)
         return text
     except sr.UnknownValueError:
-        try:
-            os.makedirs("debug_audio", exist_ok=True)
-            name = f"debug_audio/reject_{datetime.now().strftime('%H-%M-%S')}.wav"
-            with open(name, "wb") as f:
-                f.write(audio.get_wav_data())
-            import numpy as np
-            pcm = np.frombuffer(audio.frame_data, dtype=np.int16)
-            print(f"Heard speech but could not understand it ({len(pcm)/audio.sample_rate:.1f}s, raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')}, saved {name})")
-        except Exception:
-            print("Heard speech but could not understand it")
+        print(f"Heard speech but could not understand it (raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')})")
+        save_rejected_audio(audio)
         return ""
     except Exception as e:
         print("Listen Error:", e)
@@ -638,9 +664,26 @@ def recognize_with_fallback(audio):
         text = recognize_google_both(audio)
     except Exception as e:                      # e.g. no internet
         print("Google speech error:", e)
+        _stt_status["google_unreachable"] = True
         return None
+    _stt_status["google_unreachable"] = False
     LAST_ENGINE = "google"
     return text
+
+_stt_status = {"google_unreachable": False}
+_last_reported = {}
+
+def report_problem(key, message, every=60):
+    """Speak a diagnostic at most once per `every` seconds, so a persistent problem doesn't nag."""
+    now = time.time()
+    if now - _last_reported.get(key, 0) >= every:
+        _last_reported[key] = now
+        speak(message, offline=True)
+
+def not_understood_message():
+    if _stt_status["google_unreachable"] and not whisper_ready():
+        return "I cannot reach the speech service and my offline model is not ready yet."
+    return "Sorry boss, I did not catch that"
 
 # Devanagari and Hinglish words -> the English command words the rest of Maya understands.
 _HINDI_WORDS = [
@@ -1503,7 +1546,7 @@ def start_push_to_talk():
             text = recognize_with_fallback(audio)
             if text is None:
                 print(f"Could not understand it (raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')})")
-                speak("Sorry boss, I did not catch that")
+                speak(not_understood_message())
                 continue
             print(f"Heard ({LAST_ENGINE}):", text)
             _, after_wake = split_wake_word(text)
@@ -1512,13 +1555,62 @@ def start_push_to_talk():
             break
         except Exception as e:
             print("Push-to-talk Error:", e)
+            if is_microphone_error(e):
+                report_problem("mic", "I cannot use the microphone. Check that it is connected and allowed in Windows privacy settings.")
+            time.sleep(1)       # never spin if something keeps failing
+
+def is_microphone_error(e):
+    try:
+        import sounddevice as sd
+        if isinstance(e, sd.PortAudioError):
+            return True
+    except Exception:
+        pass
+    return "device" in str(e).lower() and "audio" in str(e).lower()
+
+# -------------------- SINGLE INSTANCE & CRASH RECOVERY -------------------- #
+_instance_handles = []   # keeps the mutex alive for the life of the process
+INSTANCE_MUTEX_NAME = "Local\\MayaAI_SingleInstance"
+
+def acquire_single_instance():
+    """False if Maya is already running (two copies would both grab the talk key and answer twice)."""
+    if not IS_WINDOWS or os.environ.get("MAYA_ALLOW_MULTIPLE") == "1":
+        return True
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.CreateMutexW(None, False, INSTANCE_MUTEX_NAME)
+    _instance_handles.append(handle)
+    return ctypes.get_last_error() != 183          # 183 = ERROR_ALREADY_EXISTS
+
+def supervise(target, max_crashes=5, window=600, sleep=time.sleep):
+    """Run `target`; if it crashes, log the traceback and restart it. Gives up after too many crashes in `window` seconds."""
+    import traceback
+    crashes = []
+    while True:
+        try:
+            target()
+            return True
+        except KeyboardInterrupt:
+            raise
+        except SystemExit:
+            return True
+        except Exception:
+            traceback.print_exc()
+            now = time.time()
+            crashes = [t for t in crashes if now - t < window] + [now]
+            if len(crashes) >= max_crashes:
+                print("Too many crashes, giving up.")
+                speak("I keep crashing. Please check the Maya log.", offline=True)
+                return False
+            print(f"Restarting in {2 * len(crashes)}s (crash {len(crashes)})")
+            sleep(2 * len(crashes))
 
 if __name__ == "__main__":
+    if not acquire_single_instance():
+        print("Maya is already running. Exiting this copy.")
+        sys.exit(0)
     try:
         # MAYA_MODE=wake uses the "Maya" wake word; the default is hold-to-talk
-        if os.environ.get("MAYA_MODE", "ptt").lower() == "wake":
-            start_maya()
-        else:
-            start_push_to_talk()
+        supervise(start_maya if os.environ.get("MAYA_MODE", "ptt").lower() == "wake" else start_push_to_talk)
     except KeyboardInterrupt:
         print("\nMaya AI stopped by user")

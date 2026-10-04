@@ -185,6 +185,10 @@ Maya: Opening Chrome
 
 # ⚠️ Notes
 
+- **Offline recognition:** the first start downloads the Whisper `base` model (~150 MB); until it is ready Google is used. Set `MAYA_STT_FALLBACK=0` to never send audio to Google.
+- **Voice:** a natural Microsoft neural voice is used when online (the reply text goes to Microsoft); set `MAYA_TTS=windows` for the offline voice.
+- Only one Maya runs at a time; a second copy exits immediately.
+
 - The startup GIF animation is off by default. Set `MAYA_ANIMATION=1` to show it.
 - Press **Esc** (or a talk key) while Maya is speaking to cut her off. Spoken answers are kept short (about two sentences). Tune with the `MAYA_MAX_TOKENS` environment variable (default 100).
 - Works on **Windows** and **macOS**. Safari is macOS-only; on Windows it is skipped.

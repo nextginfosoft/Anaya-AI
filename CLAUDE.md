@@ -11,7 +11,7 @@ command or asks a local Ollama model, and answers out loud. Single file: `main.p
 
 ## Environment variables
 `MAYA_MODE` (`ptt` default | `wake`), `MAYA_PTT_KEY` (default `right ctrl,f9`; `mouse:x2` supported),
-`MAYA_STOP_KEY` (default `esc`), `MAYA_MODEL`, `MAYA_MAX_TOKENS` (default 100), `MAYA_VOICE`, `MAYA_ANIMATION=1`, `MAYA_CITY` (default weather city), `MAYA_BRIEFING` (`0` = no sign-in briefing), `MAYA_BRIEFING_DELAY` (seconds, default 12), `MAYA_LANG` (first recognition language, default `en-IN`).
+`MAYA_STOP_KEY` (default `esc`), `MAYA_MODEL`, `MAYA_MAX_TOKENS` (default 100), `MAYA_VOICE`, `MAYA_ANIMATION=1`, `MAYA_CITY` (default weather city), `MAYA_STT` (`whisper`|`google`), `MAYA_STT_FALLBACK` (`0` = never use Google), `MAYA_WHISPER_MODEL` (default `base`), `MAYA_TTS` (`edge`|`windows`), `MAYA_EDGE_VOICE`, `MAYA_DEBUG_AUDIO=1`, `MAYA_ALLOW_MULTIPLE=1`, `MAYA_BRIEFING` (`0` = no sign-in briefing), `MAYA_BRIEFING_DELAY` (seconds, default 12), `MAYA_LANG` (first recognition language, default `en-IN`).
 
 ## Structure of main.py
 platform helpers → speech (`speak`, interruptible) → folder search → AI (`ask_local_ai`, short answers) →
@@ -25,5 +25,7 @@ and push-to-talk loop (`start_push_to_talk`).
 - Don't add shutdown/restart voice commands without a confirmation step (misheard speech).
 - Write patches with the Edit/Write tools, not shell heredocs: shell layers mangle backslashes in regexes and JSON paths (twice produced backspace characters).
 - `normalize_command` rewrites a leading "start"/"launch" to "open" — patterns for "start X" must also accept "open X".
+- Speech: private text (clipboard, selection, summaries) must call `speak(..., offline=True)`; plain `speak()` may use the online neural voice.
+- `__main__` = single-instance mutex + `supervise()` (restarts on crashes). Tests that import `main` do not trigger it.
 - `debug_audio/` (rejected clips), `screenshots/`, `maya.log`, `reminders.json`, `last_briefing.json` and `venv/` are git-ignored; `apps.json` is committed and user-editable.
 - Shell: PowerShell/Git Bash on Windows. Commit messages: present tense. Never commit `.env`.

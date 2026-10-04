@@ -11,8 +11,8 @@ A single desktop user who wants quick spoken commands and short answers without 
 | Area | Behaviour |
 |---|---|
 | Input | Hold Right Ctrl / F9 to record; release to send. Optional wake-word mode ("Maya"). |
-| Recognition | Google Speech (`en-IN`), audio boosted for quiet mics. |
-| Output | Windows SAPI female voice (Heera), interruptible with Esc or the talk key. |
+| Recognition | Offline Whisper (`base`, English + Hindi) first; Google Speech only as a fallback. Audio is boosted for quiet mics. Benchmark on quiet synthetic commands: Whisper 10/10, Google 8/10. |
+| Output | Neural Edge voice (en-IN Neerja; Hindi Swara for Devanagari), falls back to the offline Windows voice. Clipboard/selection/summaries always use the offline voice. Interruptible with Esc or the talk key. |
 | Apps & web | Open VS Code, Chrome, Safari (mac), WhatsApp, YouTube; search Google/YouTube; play songs. |
 | System | Volume, brightness, lock screen, time/date/battery, Notepad/Calculator/Settings/etc., screenshots. |
 | Folders | "Open folder downloads" etc. |
@@ -24,12 +24,13 @@ A single desktop user who wants quick spoken commands and short answers without 
 | App list | `apps.json` maps spoken names to URLs, paths or programs; edits apply immediately. |
 | Hands-free text | Dictation mode and "type …" paste into the active window; read the clipboard or selection aloud; translate and summarise via the local model. |
 | Briefing | At sign-in (once per 4 hours, after a 12 s delay) and on demand: time, battery, weather, reminders, headlines. Esc stops it. |
+| Reliability | Single-instance guard, crash supervisor with backoff, specific spoken errors (Ollama down, model missing, mic unavailable, speech service unreachable), log rotation. |
 | Startup | Auto-starts at Windows sign-in (Startup-folder shortcut), logs to `maya.log`. |
 
 ## Non-goals / safety
 - No shutdown/restart/sleep by voice (risk of misrecognition).
 - No always-on microphone in the default mode (push-to-talk only records while the key is held).
-- Speech audio is sent to Google for transcription; chat stays on the machine.
+- Speech is transcribed on the machine (Whisper). Google gets audio only if Whisper hears nothing usable (`MAYA_STT_FALLBACK=0` to forbid). The neural voice sends the spoken reply text to Microsoft (`MAYA_TTS=windows` for fully offline). Rejected-audio capture is off unless `MAYA_DEBUG_AUDIO=1`.
 
 ## Known limitations
 - Laptop mic is very quiet; a headset/USB mic or higher Windows input level improves accuracy a lot.
