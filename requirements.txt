@@ -5,3 +5,4 @@ PyAutoGUI
 pywhatkit
 ollama
 Pillow
+keyboard

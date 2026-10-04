@@ -11,6 +11,12 @@ import ollama
 import pyautogui
 from datetime import datetime
 
+# Under pythonw (auto-start at login) there is no console: log to maya.log instead
+if sys.stdout is None or sys.stderr is None:
+    _log = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "maya.log"), "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+
 # Windows consoles default to cp1252, which cannot print the emoji used in log messages
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -219,6 +225,21 @@ def ask_local_ai(prompt):
         print("Ollama Error:", e)
         return "Sorry boss, AI is not responding."
 
+def frames_to_audio(frames, rate=16000, max_gain=40.0, loud_chunks=0):
+    """Join recorded int16 chunks into sr.AudioData, boosting quiet mics up to max_gain."""
+    import numpy as np
+    samples = np.concatenate(frames).astype(np.float32)
+    raw_peak = float(np.abs(samples).max())
+    gain = 1.0
+    if raw_peak > 0:
+        # Quiet laptop mics: boost toward a usable level, capped at max_gain
+        gain = min(20000.0 / raw_peak, max_gain)
+        samples = np.clip(samples * gain, -32768, 32767)
+    LAST_CLIP.update(raw_peak=int(raw_peak), gain=round(gain, 1), loud_chunks=loud_chunks)
+    return sr.AudioData(samples.astype(np.int16).tobytes(), rate, 2)
+
+LAST_CLIP = {}
+
 def record_phrase(timeout=5, phrase_time=6, rate=16000):
     """Record one phrase from the default microphone using sounddevice (no PyAudio needed).
     Returns sr.AudioData, or None if no speech started within `timeout` seconds."""
@@ -266,17 +287,7 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
                     frames, preroll, started, silent_chunks, loud_chunks, spoken = [], [], False, 0, 0, 0.0
                     if waited >= timeout:
                         return None
-    samples = np.concatenate(frames).astype(np.float32)
-    raw_peak = float(np.abs(samples).max())
-    gain = 1.0
-    if raw_peak > 0:
-        # Quiet laptop mics: boost toward a usable level, capped at MAX_GAIN
-        gain = min(20000.0 / raw_peak, MAX_GAIN)
-        samples = np.clip(samples * gain, -32768, 32767)
-    LAST_CLIP.update(raw_peak=int(raw_peak), gain=round(gain, 1), loud_chunks=loud_chunks)
-    return sr.AudioData(samples.astype(np.int16).tobytes(), rate, 2)
-
-LAST_CLIP = {}
+    return frames_to_audio(frames, rate, MAX_GAIN, loud_chunks)
 
 def listen_command(timeout=5, phrase_time=6):
     try:
@@ -465,8 +476,71 @@ def start_maya():
         except Exception as e:
             print("Loop Error:", e)
 
+# -------------------- PUSH TO TALK -------------------- #
+PTT_KEY = os.environ.get("MAYA_PTT_KEY", "f9")
+
+def beep(freq):
+    if IS_WINDOWS:
+        try:
+            import winsound
+            winsound.Beep(freq, 80)
+        except Exception:
+            pass
+
+def record_while_held(key, rate=16000, max_seconds=15):
+    """Record from the mic for as long as `key` is held. Returns sr.AudioData or None if too short."""
+    import numpy as np
+    import sounddevice as sd
+    import keyboard
+    import time
+
+    chunk = int(rate * 0.05)
+    frames, start = [], time.time()
+    with sd.InputStream(samplerate=rate, channels=1, dtype="int16", blocksize=chunk) as stream:
+        while keyboard.is_pressed(key) and time.time() - start < max_seconds:
+            data, _ = stream.read(chunk)
+            frames.append(data.copy())
+    if len(frames) * 0.05 < 0.3:  # accidental tap
+        return None
+    return frames_to_audio(frames, rate)
+
+def start_push_to_talk():
+    import keyboard
+
+    show_startup_gif()
+    speak(f"Maya is ready. Hold {PTT_KEY} and speak.")
+    print(f"Hold [{PTT_KEY.upper()}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")
+
+    while True:
+        try:
+            keyboard.wait(PTT_KEY)
+            beep(880)
+            print("Recording...")
+            audio = record_while_held(PTT_KEY)
+            beep(440)
+            if audio is None:
+                print("Too short, ignored")
+                continue
+            try:
+                text = recognizer.recognize_google(audio, language="en-IN")
+            except sr.UnknownValueError:
+                print(f"Could not understand it (raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')})")
+                speak("Sorry boss, I did not catch that")
+                continue
+            print("Heard:", text)
+            _, after_wake = split_wake_word(text)
+            process_command(after_wake or text)
+        except SystemExit:
+            break
+        except Exception as e:
+            print("Push-to-talk Error:", e)
+
 if __name__ == "__main__":
     try:
-        start_maya()
+        # MAYA_MODE=wake uses the "Maya" wake word; the default is hold-to-talk
+        if os.environ.get("MAYA_MODE", "ptt").lower() == "wake":
+            start_maya()
+        else:
+            start_push_to_talk()
     except KeyboardInterrupt:
         print("\nMaya AI stopped by user")
