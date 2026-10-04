@@ -1,10 +1,9 @@
 <div align="center">
 
-<img src="docs/anaya-orb.png" alt="Anaya AI" width="260">
+<img src="docs/social-preview.png" alt="Anaya AI: a private, mostly-local voice assistant for Windows" width="100%">
 
 # Anaya AI
 
-**A private, mostly-local voice assistant for Windows.**
 Hold a key, speak, and Anaya controls your computer, answers questions, sets reminders and types for you.
 
 [![tests](https://github.com/nextginfosoft/Anaya-AI/actions/workflows/tests.yml/badge.svg)](https://github.com/nextginfosoft/Anaya-AI/actions/workflows/tests.yml)
