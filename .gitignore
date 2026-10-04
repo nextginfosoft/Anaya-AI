@@ -13,4 +13,4 @@ __pycache__/
 .DS_Store
 
 # VS Code settings (optional)
-.vscode/
+.vscode/screenshots/

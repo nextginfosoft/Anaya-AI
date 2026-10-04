@@ -2,12 +2,53 @@ import speech_recognition as sr
 import subprocess
 import webbrowser
 import os
+import sys
+import shutil
+from pathlib import Path
 import pywhatkit
 import ollama
 import pyautogui
 from datetime import datetime
 
 recognizer = sr.Recognizer()
+
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+
+# -------------------- PLATFORM HELPERS -------------------- #
+def open_path(path):
+    """Open a file or folder with the OS default handler."""
+    if IS_WINDOWS:
+        os.startfile(path)
+    elif IS_MAC:
+        subprocess.run(["open", path])
+    else:
+        subprocess.run(["xdg-open", path])
+
+def open_app(mac_name, win_candidates, fallback_url=None):
+    """Launch an application. win_candidates: executables on PATH, full paths, or URI schemes."""
+    try:
+        if IS_MAC:
+            subprocess.run(["open", "-a", mac_name], check=True)
+            return True
+        if IS_WINDOWS:
+            for cand in win_candidates:
+                if cand.endswith(":"):  # URI scheme, e.g. whatsapp:
+                    try:
+                        os.startfile(cand)
+                        return True
+                    except OSError:
+                        continue
+                exe = shutil.which(cand) or (cand if os.path.exists(os.path.expandvars(cand)) else None)
+                if exe:
+                    subprocess.Popen([os.path.expandvars(exe)], shell=exe.lower().endswith((".cmd", ".bat")))
+                    return True
+    except Exception as e:
+        print("Open App Error:", e)
+    if fallback_url:
+        webbrowser.open(fallback_url)
+        return True
+    return False
 
 # GIF Animation Configuration
 GIF_PATH = "maya_animation.gif"  # Change this to your GIF filename
@@ -48,7 +89,7 @@ def show_startup_gif():
 </head>
 <body>
     <div class="maya-container">
-        <img src="file://{gif_absolute_path}" alt="Maya AI Animation" class="maya-gif">
+        <img src="{Path(gif_absolute_path).as_uri()}" alt="Maya AI Animation" class="maya-gif">
     </div>
 </body>
 </html>
@@ -61,7 +102,7 @@ def show_startup_gif():
             
             # Open HTML in browser
             html_path = os.path.abspath(html_file)
-            webbrowser.open(f"file://{html_path}")
+            webbrowser.open(Path(html_path).as_uri())
             print("✅ Maya AI animation opened in browser")
             
         else:
@@ -70,7 +111,7 @@ def show_startup_gif():
             
             # Open fallback animation
             fallback_path = os.path.abspath("maya_fallback_animation.html")
-            webbrowser.open(f"file://{fallback_path}")
+            webbrowser.open(Path(fallback_path).as_uri())
             print("✅ Maya AI fallback animation opened in browser")
             
     except Exception as e:
@@ -80,8 +121,22 @@ def show_startup_gif():
 def speak(text):
     try:
         print("maya:", text)
-        safe_text = text.replace('"', '\\"')
-        os.system(f'say "{safe_text}"')
+        if IS_WINDOWS:
+            # Pass text via environment variable to avoid shell-quoting problems
+            script = (
+                "Add-Type -AssemblyName System.Speech;"
+                "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+                "$s.Speak($env:MAYA_TEXT)"
+            )
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                env={**os.environ, "MAYA_TEXT": text},
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        elif IS_MAC:
+            subprocess.run(["say", text])
+        else:
+            subprocess.run(["espeak", text])
     except Exception as e:
         print("Speech Error:", e)
 
@@ -101,32 +156,44 @@ What do you want me to do?
 """)
 
 # -------------------- FOLDER SEARCH -------------------- #
+def find_folder(foldername):
+    """Locate a folder by name. Returns a path or None."""
+    home = Path.home()
+    # Well-known folders first
+    known = home / foldername.strip().title()
+    if known.is_dir():
+        return str(known)
+
+    if IS_MAC:
+        result = subprocess.run(["mdfind", foldername], capture_output=True, text=True)
+        folders = [f for f in result.stdout.strip().split(chr(10)) if os.path.isdir(f)]
+        return folders[0] if folders else None
+
+    # Windows/Linux: bounded walk of the home directory
+    target = foldername.strip().lower()
+    max_depth = 4
+    base_depth = len(home.parts)
+    for root, dirs, _ in os.walk(home):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "AppData"]
+        if len(Path(root).parts) - base_depth >= max_depth:
+            dirs[:] = []
+        for d in dirs:
+            if target in d.lower():
+                return os.path.join(root, d)
+    return None
+
 def open_folder_anywhere(foldername):
     try:
-        # simple search (no complex query)
-        result = subprocess.run(
-            ["mdfind", foldername],
-            capture_output=True,
-            text=True
-        )
-
-        results = result.stdout.strip().split("\n")
-
-        # sirf folders filter karo
-        folders = [f for f in results if os.path.isdir(f)]
-
-        if folders:
-            path = folders[0]
+        path = find_folder(foldername)
+        if path:
             speak("Opening folder")
-            subprocess.run(["open", path])
+            open_path(path)
         else:
             speak("Folder not found boss")
 
     except Exception as e:
         print("Folder Search Error:", e)
         speak("Error while opening folder")
-
-
 
 def ask_local_ai(prompt):
     try:
@@ -139,23 +206,47 @@ def ask_local_ai(prompt):
         print("Ollama Error:", e)
         return "Sorry boss, AI is not responding."
 
+def record_phrase(timeout=5, phrase_time=6, rate=16000):
+    """Record one phrase from the default microphone using sounddevice (no PyAudio needed).
+    Returns sr.AudioData, or None if no speech started within `timeout` seconds."""
+    import numpy as np
+    import sounddevice as sd
+
+    chunk = int(rate * 0.1)
+    # Calibrate on ambient noise
+    ambient = sd.rec(int(rate * 0.5), samplerate=rate, channels=1, dtype="int16")
+    sd.wait()
+    threshold = max(float(np.abs(ambient).mean()) * 3, 300.0)
+
+    frames, started, silent_chunks = [], False, 0
+    waited, spoken = 0.0, 0.0
+    with sd.InputStream(samplerate=rate, channels=1, dtype="int16", blocksize=chunk) as stream:
+        while True:
+            data, _ = stream.read(chunk)
+            loud = float(np.abs(data).mean()) > threshold
+            if not started:
+                waited += 0.1
+                if loud:
+                    started = True
+                    frames.append(data.copy())
+                elif waited >= timeout:
+                    return None
+            else:
+                frames.append(data.copy())
+                spoken += 0.1
+                silent_chunks = 0 if loud else silent_chunks + 1
+                if silent_chunks >= 8 or spoken >= phrase_time:
+                    break
+    return sr.AudioData(np.concatenate(frames).tobytes(), rate, 2)
+
 def listen_command(timeout=5, phrase_time=6):
     try:
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            print("Listening...")
-            audio = recognizer.listen(
-                source,
-                timeout=timeout,
-                phrase_time_limit=phrase_time
-            )
-
-        text = recognizer.recognize_google(audio, language="en-IN")
-        return text
-
-    except sr.WaitTimeoutError:
-        return ""
-    except:
+        print("Listening...")
+        audio = record_phrase(timeout, phrase_time)
+        if audio is None:
+            return ""
+        return recognizer.recognize_google(audio, language="en-IN")
+    except Exception:
         return ""
 
 def play_song(command):
@@ -182,7 +273,7 @@ def take_screenshot():
     screenshot = pyautogui.screenshot()
     screenshot.save(file_path)
 
-    os.system(f"open {file_path}")
+    open_path(os.path.abspath(file_path))
     return file_path
 
 # -------------------- COMMAND PROCESSOR -------------------- #
@@ -192,23 +283,37 @@ def process_command(command):
     try:
         if "open visual studio code" in command or "open vs code" in command:
             speak("Opening Visual Studio Code")
-            subprocess.run(["open", "-a", "Visual Studio Code"])
+            if not open_app("Visual Studio Code", [
+                "code",
+                r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe",
+                r"C:\Program Files\Microsoft VS Code\Code.exe",
+            ]):
+                speak("Visual Studio Code not found")
 
         elif "open safari" in command:
-            speak("Opening Safari")
-            subprocess.run(["open", "-a", "Safari"])
+            if IS_MAC:
+                speak("Opening Safari")
+                open_app("Safari", [])
+            else:
+                speak("Safari is not available on this system")
 
         elif "open chrome" in command:
             speak("Opening Chrome")
-            subprocess.run(["open", "-a", "Google Chrome"])
+            if not open_app("Google Chrome", [
+                "chrome",
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+            ], fallback_url="https://www.google.com"):
+                speak("Chrome not found")
 
         elif "open youtube" in command:
             speak("Opening YouTube")
             webbrowser.open("https://youtube.com")
 
-        elif "open whatsApp" in command:
-            speak("Opening whatsApp ")
-            subprocess.run(["open", "-a", "WhatsApp"])    
+        elif "open whatsapp" in command:
+            speak("Opening WhatsApp")
+            open_app("WhatsApp", ["whatsapp:"], fallback_url="https://web.whatsapp.com")
 
         elif "tell me about yourself" in command or "introduce yourself" in command or "who are you" in command:
             introduce_yourself()

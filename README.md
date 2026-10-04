@@ -1,9 +1,9 @@
-# 🤖 Maya AI 1.2 (macOS Edition)
+# 🤖 Maya AI 1.2 (Windows & macOS)
 
 Maya AI is a personal voice assistant built with Python and powered by Ollama. It can understand voice commands, open applications, search the web, play music, capture screenshots, and assist you with everyday tasks using natural voice interaction.
 
 > **Version:** 1.2  
-> **Platform:** macOS  
+> **Platform:** Windows, macOS  
 > **Language:** Python
 
 ---
@@ -63,14 +63,15 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 - PyAutoGUI
 - Webbrowser
 - Subprocess
-- macOS Speech Engine
+- Windows SAPI (System.Speech) / macOS `say`
+- sounddevice (microphone capture)
 
 ---
 
 # 📦 Requirements
 
 - Python 3.10 or later
-- macOS
+- Windows 10/11 or macOS
 - Ollama Installed
 - Llama 3 Model Installed
 - Working Microphone
@@ -110,10 +111,12 @@ python main.py
 
 ```text
 SpeechRecognition
-PyAudio
+sounddevice
+numpy
 PyAutoGUI
 pywhatkit
 ollama
+Pillow
 ```
 
 ---
@@ -162,8 +165,8 @@ Maya: Opening Chrome
 
 # ⚠️ Notes
 
-- This version is designed and tested on **macOS**.
-- Windows and Linux support are planned for future versions.
+- Works on **Windows** and **macOS**. Safari is macOS-only; on Windows it is skipped.
+- Microphone capture uses `sounddevice`, so PyAudio / C++ build tools are not needed.
 - Ollama must be installed for AI chat functionality.
 - Make sure your microphone permission is enabled.
 
