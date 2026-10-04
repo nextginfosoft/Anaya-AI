@@ -214,13 +214,35 @@ def open_folder_anywhere(foldername):
         print("Folder Search Error:", e)
         speak("Error while opening folder")
 
+MAYA_SYSTEM_PROMPT = (
+    "You are Maya, a friendly voice assistant. Your replies are spoken aloud, so answer in at most "
+    "two short sentences. Never use bullet points, markdown or emojis, and skip any preamble. If asked for a "
+    "list, name a few items in one spoken sentence. Only go longer if the user explicitly asks for detail."
+)
+MAX_REPLY_TOKENS = int(os.environ.get("MAYA_MAX_TOKENS", "100"))
+
+def clean_for_speech(text):
+    """Strip markdown/symbols and cut off any trailing half-finished sentence."""
+    text = re.sub(r"[*_`#>~|]+", "", text)
+    text = re.sub(r"^\s*(?:[-•]|\d+[.)])\s+", "", text, flags=re.M)
+    text = re.sub(r"\s+", " ", text).strip()
+    if text and text[-1] not in ".!?":
+        cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"))
+        if cut > 20:
+            text = text[: cut + 1]
+    return text
+
 def ask_local_ai(prompt):
     try:
         response = ollama.chat(
             model=OLLAMA_MODEL,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[
+                {"role": "system", "content": MAYA_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            options={"num_predict": MAX_REPLY_TOKENS},
         )
-        return response["message"]["content"]
+        return clean_for_speech(response["message"]["content"]) or "Sorry boss, I have no answer."
     except Exception as e:
         print("Ollama Error:", e)
         return "Sorry boss, AI is not responding."
