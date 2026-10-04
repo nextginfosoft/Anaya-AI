@@ -86,7 +86,8 @@ def test_license_keeps_original_and_new_copyright():
 def test_readme_credits_both_authors():
     text = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
     assert "Santosh Pandit" in text and "Taha Shaikh" in text
-    assert text.splitlines()[0].startswith("# ") and "Anaya" in text.splitlines()[0]
+    assert re.search(r"^# Anaya AI$", text, flags=re.M)                # the title heading
+    assert "Maya AI" in text and "Credits" in text                     # the original project is credited
 
 
 def test_old_name_only_appears_where_intended():

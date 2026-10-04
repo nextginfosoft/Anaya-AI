@@ -22,3 +22,5 @@ last_briefing.json
 debug_bench/
 anaya.log
 anaya.log.1
+.pytest_cache/
+.vexp/

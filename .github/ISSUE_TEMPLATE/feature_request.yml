@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a new command or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Anaya to do?
+      description: Describe it as something you would say, and what should happen.
+      placeholder: 'e.g. "Play the next song" skips the track in Spotify.'
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it useful?
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: It works without sending personal data off the PC, or I have described what would be sent.
