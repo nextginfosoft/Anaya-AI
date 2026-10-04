@@ -10,6 +10,13 @@ import ollama
 import pyautogui
 from datetime import datetime
 
+# Windows consoles default to cp1252, which cannot print the emoji used in log messages
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 recognizer = sr.Recognizer()
 
 IS_WINDOWS = sys.platform == "win32"
