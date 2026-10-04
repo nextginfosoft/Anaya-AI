@@ -368,7 +368,7 @@ def listen_command(timeout=5, phrase_time=6):
         text = recognize_with_fallback(audio)
         if text is None:
             raise sr.UnknownValueError()
-        print("Heard:", text)
+        print(f"Heard ({LAST_ENGINE}):", text)
         return text
     except sr.UnknownValueError:
         try:
@@ -478,8 +478,8 @@ def set_recognition_language(code):
     global _recog_primary
     _recog_primary = RECOG_LANGS[code]
 
-def recognize_with_fallback(audio):
-    """Transcribe with the primary language, then the secondary. Returns None if neither works."""
+def recognize_google_both(audio):
+    """Google Speech: primary language, then the secondary. Returns None if neither works."""
     for lang in (_recog_primary, _secondary_lang()):
         try:
             text = recognizer.recognize_google(audio, language=lang)
@@ -488,6 +488,97 @@ def recognize_with_fallback(audio):
         except sr.UnknownValueError:
             continue
     return None
+
+# -------------------- OFFLINE SPEECH RECOGNITION (Whisper) -------------------- #
+# Runs on this PC, so your voice is not uploaded. Google is only used if Whisper hears nothing usable
+# (set MAYA_STT_FALLBACK=0 to never use Google, or MAYA_STT=google to use only Google).
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+STT_ENGINE = os.environ.get("MAYA_STT", "whisper").lower()
+STT_FALLBACK_TO_GOOGLE = os.environ.get("MAYA_STT_FALLBACK", "1") == "1"
+WHISPER_MODEL_NAME = os.environ.get("MAYA_WHISPER_MODEL", "base")
+WHISPER_PROMPT = (
+    "Voice commands for Maya: open Chrome, open YouTube, open Notepad, volume up, volume down, set brightness, "
+    "set a timer for five minutes, remind me in ten minutes, what is the weather in Delhi, tell me the news, "
+    "translate this to Hindi, summarise what I copied, start dictation, lock the screen, who wrote Hamlet."
+)
+_NOT_SPEECH = {"thank you for watching", "thanks for watching", "subtitles by the amara org community", "you"}
+_whisper = {"model": None, "state": "idle"}      # state: idle | loading | ready | failed
+LAST_ENGINE = ""
+
+def _load_whisper():
+    try:
+        from faster_whisper import WhisperModel
+        _whisper["model"] = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+        _whisper["state"] = "ready"
+        print(f"Whisper '{WHISPER_MODEL_NAME}' ready")
+    except Exception as e:
+        _whisper["state"] = "failed"
+        print("Whisper unavailable, using Google:", e)
+
+def load_whisper_async():
+    """Load the model in the background (the first run downloads ~150 MB); until then Google is used."""
+    if STT_ENGINE == "whisper" and _whisper["state"] == "idle":
+        _whisper["state"] = "loading"
+        threading.Thread(target=_load_whisper, daemon=True).start()
+
+def whisper_ready():
+    return _whisper["state"] == "ready"
+
+def choose_whisper_language(probs, primary):
+    """Pick English or Hindi from Whisper's language probabilities (it otherwise guesses wild languages on short audio)."""
+    p = dict(probs)
+    p_en, p_hi = p.get("en", 0.0), p.get("hi", 0.0)
+    if primary.startswith("hi"):
+        return "en" if p_en > 0.7 else "hi"
+    return "hi" if (p_hi > 0.6 and p_hi > 2 * p_en) else "en"
+
+def clean_whisper_text(text):
+    """Drop Whisper's classic hallucinations on noise: foreign scripts, repetition loops, subtitle boilerplate."""
+    import zlib
+    text = text.strip()
+    if not text:
+        return None
+    if re.search(r"[^\u0000-ɏऀ-ॿ -⁯\s]", text):      # Greek, CJK, etc.
+        return None
+    if len(text) > 40 and len(text) / len(zlib.compress(text.encode("utf-8"))) > 2.4:   # "We will be on the next one. We will..."
+        return None
+    if re.sub(r"[^\w\s]", "", text.lower()).strip() in _NOT_SPEECH:
+        return None
+    return text
+
+def transcribe_whisper(audio):
+    import numpy as np
+    model = _whisper["model"]
+    samples = np.frombuffer(audio.frame_data, dtype=np.int16).astype(np.float32) / 32768.0
+    language, _, all_probs = model.detect_language(samples)
+    language = choose_whisper_language(all_probs, _recog_primary)
+    segments, _ = model.transcribe(
+        samples, language=language, beam_size=1, vad_filter=True, condition_on_previous_text=False,
+        initial_prompt=WHISPER_PROMPT if language == "en" else None,
+        no_speech_threshold=0.6, compression_ratio_threshold=2.4, log_prob_threshold=-1.0,
+    )
+    return clean_whisper_text(" ".join(s.text.strip() for s in segments))
+
+def recognize_with_fallback(audio):
+    """Whisper (offline) first, then Google if allowed. Returns the text or None."""
+    global LAST_ENGINE
+    if STT_ENGINE == "whisper" and whisper_ready():
+        try:
+            text = transcribe_whisper(audio)
+            if text:
+                LAST_ENGINE = "whisper"
+                return text
+        except Exception as e:
+            print("Whisper error:", e)
+        if not STT_FALLBACK_TO_GOOGLE:
+            return None
+    try:
+        text = recognize_google_both(audio)
+    except Exception as e:                      # e.g. no internet
+        print("Google speech error:", e)
+        return None
+    LAST_ENGINE = "google"
+    return text
 
 # Devanagari and Hinglish words -> the English command words the rest of Maya understands.
 _HINDI_WORDS = [
@@ -1239,6 +1330,7 @@ def start_maya():
     # Show GIF in browser first
     show_startup_gif()
 
+    load_whisper_async()
     start_reminder_thread()
     maybe_start_morning_briefing()
     speak("Maya is activated")
@@ -1326,6 +1418,7 @@ def record_while_held(rate=16000, max_seconds=15):
     return frames_to_audio(frames, rate)
 
 def start_push_to_talk():
+    load_whisper_async()
     start_reminder_thread()
     maybe_start_morning_briefing()
     show_startup_gif()
@@ -1347,7 +1440,7 @@ def start_push_to_talk():
                 print(f"Could not understand it (raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')})")
                 speak("Sorry boss, I did not catch that")
                 continue
-            print("Heard:", text)
+            print(f"Heard ({LAST_ENGINE}):", text)
             _, after_wake = split_wake_word(text)
             process_command(after_wake or text)
         except SystemExit:

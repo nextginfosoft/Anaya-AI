@@ -8,3 +8,5 @@ Pillow
 keyboard
 mouse
 pyperclip
+faster-whisper
+edge-tts

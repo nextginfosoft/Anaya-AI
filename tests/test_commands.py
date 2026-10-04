@@ -296,6 +296,7 @@ class TestRecognitionFallback:
     @pytest.fixture(autouse=True)
     def reset_lang(self, monkeypatch):
         monkeypatch.setattr(main, "_recog_primary", "en-IN")
+        monkeypatch.setattr(main, "STT_ENGINE", "google")      # these tests are about the Google path
 
     def fake(self, monkeypatch, outcomes):
         calls = []
