@@ -226,7 +226,7 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
     sd.wait()
     threshold = max(float(np.abs(ambient).mean()) * 3, 40.0)
 
-    frames, started, silent_chunks = [], False, 0
+    frames, preroll, started, silent_chunks = [], [], False, 0
     waited, spoken = 0.0, 0.0
     with sd.InputStream(samplerate=rate, channels=1, dtype="int16", blocksize=chunk) as stream:
         while True:
@@ -236,14 +236,19 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
                 waited += 0.1
                 if loud:
                     started = True
+                    # Include the quiet moments just before the trigger so soft onsets aren't clipped
+                    frames.extend(preroll)
                     frames.append(data.copy())
-                elif waited >= timeout:
-                    return None
+                else:
+                    preroll.append(data.copy())
+                    preroll = preroll[-4:]
+                    if waited >= timeout:
+                        return None
             else:
                 frames.append(data.copy())
                 spoken += 0.1
                 silent_chunks = 0 if loud else silent_chunks + 1
-                if silent_chunks >= 8 or spoken >= phrase_time:
+                if silent_chunks >= 10 or spoken >= phrase_time:
                     break
     samples = np.concatenate(frames).astype(np.float32)
     peak = float(np.abs(samples).max())
@@ -262,7 +267,16 @@ def listen_command(timeout=5, phrase_time=6):
         print("Heard:", text)
         return text
     except sr.UnknownValueError:
-        print("Heard speech but could not understand it")
+        try:
+            os.makedirs("debug_audio", exist_ok=True)
+            name = f"debug_audio/reject_{datetime.now().strftime('%H-%M-%S')}.wav"
+            with open(name, "wb") as f:
+                f.write(audio.get_wav_data())
+            import numpy as np
+            pcm = np.frombuffer(audio.frame_data, dtype=np.int16)
+            print(f"Heard speech but could not understand it ({len(pcm)/audio.sample_rate:.1f}s, saved {name})")
+        except Exception:
+            print("Heard speech but could not understand it")
         return ""
     except Exception as e:
         print("Listen Error:", e)
