@@ -501,7 +501,27 @@ def start_maya():
             print("Loop Error:", e)
 
 # -------------------- PUSH TO TALK -------------------- #
-PTT_KEY = os.environ.get("MAYA_PTT_KEY", "f9")
+# Comma-separated list. "mouse:x2" = forward side button, "mouse:x" = back side button, anything else = keyboard key.
+PTT_KEYS = [k.strip().lower() for k in os.environ.get("MAYA_PTT_KEY", "mouse:x2,f9").split(",") if k.strip()]
+PTT_LABEL = " or ".join(("mouse side button" if k == "mouse:x2" else "mouse back button" if k == "mouse:x" else k.upper()) for k in PTT_KEYS)
+
+def ptt_held(keys=None):
+    """True while any configured push-to-talk key or mouse button is held."""
+    import keyboard
+    import mouse
+    for k in (keys or PTT_KEYS):
+        if k.startswith("mouse:"):
+            if mouse.is_pressed(k.split(":", 1)[1]):
+                return True
+        elif keyboard.is_pressed(k):
+            return True
+    return False
+
+def wait_for_ptt(poll=0.02):
+    """Block until a push-to-talk key/button is pressed."""
+    import time
+    while not ptt_held():
+        time.sleep(poll)
 
 def beep(freq):
     if IS_WINDOWS:
@@ -511,17 +531,16 @@ def beep(freq):
         except Exception:
             pass
 
-def record_while_held(key, rate=16000, max_seconds=15):
-    """Record from the mic for as long as `key` is held. Returns sr.AudioData or None if too short."""
+def record_while_held(rate=16000, max_seconds=15):
+    """Record from the mic for as long as a push-to-talk key/button is held. Returns sr.AudioData or None if too short."""
     import numpy as np
     import sounddevice as sd
-    import keyboard
     import time
 
     chunk = int(rate * 0.05)
     frames, start = [], time.time()
     with sd.InputStream(samplerate=rate, channels=1, dtype="int16", blocksize=chunk) as stream:
-        while keyboard.is_pressed(key) and time.time() - start < max_seconds:
+        while ptt_held() and time.time() - start < max_seconds:
             data, _ = stream.read(chunk)
             frames.append(data.copy())
     if len(frames) * 0.05 < 0.3:  # accidental tap
@@ -529,18 +548,16 @@ def record_while_held(key, rate=16000, max_seconds=15):
     return frames_to_audio(frames, rate)
 
 def start_push_to_talk():
-    import keyboard
-
     show_startup_gif()
-    speak(f"Maya is ready. Hold {PTT_KEY} and speak.")
-    print(f"Hold [{PTT_KEY.upper()}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")
+    speak("Maya is ready. Hold the talk button and speak.")
+    print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")
 
     while True:
         try:
-            keyboard.wait(PTT_KEY)
+            wait_for_ptt()
             beep(880)
             print("Recording...")
-            audio = record_while_held(PTT_KEY)
+            audio = record_while_held()
             beep(440)
             if audio is None:
                 print("Too short, ignored")

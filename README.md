@@ -24,7 +24,7 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 - 📺 YouTube Search
 - 📸 Screenshot Capture
 - 🎬 Startup GIF Animation
-- 🎯 Push-to-Talk (hold F9) or Wake Word Detection ("Maya")
+- 🎯 Push-to-Talk (mouse side button or F9) or Wake Word Detection ("Maya")
 - ⚡ Fast Voice Command Processing
 
 ---
@@ -139,7 +139,7 @@ Maya-AI-1.2
 
 # ⚙️ How It Works
 
-**Default: push-to-talk.** Hold **F9**, speak, release. Maya transcribes only that recording, so room noise is ignored. Change the key with the `MAYA_PTT_KEY` environment variable (for example `f8`).
+**Default: push-to-talk.** Hold your mouse **forward side button** (or **F9**), speak, release. Maya transcribes only that recording, so room noise is ignored. Change it with the `MAYA_PTT_KEY` environment variable: a comma-separated list such as `mouse:x2,f9` (`mouse:x` is the back side button, anything else is a keyboard key like `f8`).
 
 **Wake-word mode:** set `MAYA_MODE=wake` and use the steps below.
 

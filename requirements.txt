@@ -6,3 +6,4 @@ pywhatkit
 ollama
 Pillow
 keyboard
+mouse
