@@ -375,10 +375,133 @@ def normalize_command(command):
     command = re.sub(r"\bplease\b", "", command)
     return re.sub(r"\s+", " ", command).strip()
 
+# -------------------- WINDOWS SYSTEM COMMANDS -------------------- #
+def _press_media_key(name, times=1):
+    import keyboard
+    for _ in range(times):
+        keyboard.send(name)
+
+def _powershell(script):
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW,
+    ).stdout.strip()
+
+def _get_brightness():
+    out = _powershell("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness")
+    return int(out.split()[0]) if out else None
+
+def _set_brightness(level):
+    level = max(5, min(100, level))
+    _powershell(
+        "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods)"
+        f".WmiSetBrightness(1,{level})"
+    )
+    return level
+
+# phrase -> (spoken reply, launcher). Launchers are executables or URI schemes handled by os.startfile.
+SYSTEM_APPS = {
+    "notepad": ("Opening Notepad", "notepad.exe"),
+    "calculator": ("Opening Calculator", "calc.exe"),
+    "task manager": ("Opening Task Manager", "taskmgr.exe"),
+    "file explorer": ("Opening File Explorer", "explorer.exe"),
+    "explorer": ("Opening File Explorer", "explorer.exe"),
+    "settings": ("Opening Settings", "ms-settings:"),
+    "control panel": ("Opening Control Panel", "control.exe"),
+    "command prompt": ("Opening Command Prompt", "cmd.exe"),
+    "terminal": ("Opening Terminal", "wt.exe"),
+    "paint": ("Opening Paint", "mspaint.exe"),
+    "snipping tool": ("Opening Snipping Tool", "snippingtool.exe"),
+}
+
+def handle_system_command(command):
+    """Handle Windows system commands. Returns True if the command was handled."""
+    if not IS_WINDOWS:
+        return False
+
+    # ---- volume ----
+    if "volume" in command or command in ("mute", "unmute") or "louder" in command or "quieter" in command:
+        m = re.search(r"(\d{1,3})", command)
+        if "unmute" in command or ("mute" in command and "un" in command):
+            _press_media_key("volume mute"); speak("Volume toggled")
+        elif "mute" in command:
+            _press_media_key("volume mute"); speak("Muted")
+        elif m and re.search(r"\b(set|to|at)\b", command):
+            level = max(0, min(100, int(m.group(1))))
+            _press_media_key("volume down", 50)          # each key press is 2%
+            _press_media_key("volume up", level // 2)
+            speak(f"Volume set to {level} percent")
+        elif re.search(r"\b(up|increase|raise|louder|higher)\b", command):
+            _press_media_key("volume up", 5); speak("Volume up")
+        elif re.search(r"\b(down|decrease|lower|reduce|quieter)\b", command):
+            _press_media_key("volume down", 5); speak("Volume down")
+        else:
+            return False
+        return True
+
+    # ---- brightness ----
+    if "brightness" in command:
+        current = _get_brightness()
+        if current is None:
+            speak("I cannot control brightness on this screen")
+            return True
+        m = re.search(r"(\d{1,3})", command)
+        if m and re.search(r"\b(set|to|at)\b", command):
+            level = _set_brightness(int(m.group(1)))
+        elif re.search(r"\b(up|increase|raise|higher|more)\b", command):
+            level = _set_brightness(current + 20)
+        elif re.search(r"\b(down|decrease|lower|reduce|dim|less)\b", command):
+            level = _set_brightness(current - 20)
+        else:
+            return False
+        speak(f"Brightness {level} percent")
+        return True
+
+    # ---- lock screen ----
+    if re.search(r"\block (?:the )?(?:screen|computer|laptop|pc)\b", command) or command == "lock":
+        speak("Locking the screen")
+        subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"])
+        return True
+
+    # ---- time, date, battery ----
+    if re.search(r"\bwhat(?:'s| is)? the time\b|\bwhat time is it\b|\bcurrent time\b|\btell me the time\b", command):
+        speak("It is " + datetime.now().strftime("%I:%M %p").lstrip("0"))
+        return True
+    if re.search(r"\bwhat(?:'s| is)? the date\b|\btoday'?s date\b|\bwhat day is it\b|\bwhat is today\b", command):
+        speak("Today is " + datetime.now().strftime("%A, %d %B %Y"))
+        return True
+    if "battery" in command:
+        out = _powershell("(Get-CimInstance Win32_Battery | Select-Object -First 1 EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress)")
+        try:
+            import json
+            info = json.loads(out)
+            charging = "and charging" if info.get("BatteryStatus") in (2, 6, 7, 8) else ""
+            speak(f"Battery is at {info['EstimatedChargeRemaining']} percent {charging}".strip())
+        except Exception:
+            speak("I cannot read the battery status")
+        return True
+
+    # ---- open system apps ----
+    if command.startswith("open "):
+        target = command[5:].strip()
+        if target in SYSTEM_APPS:
+            reply, launcher = SYSTEM_APPS[target]
+            speak(reply)
+            try:
+                os.startfile(launcher) if launcher.endswith(":") else subprocess.Popen([launcher])
+            except Exception as e:
+                print("System App Error:", e)
+                speak("I could not open it")
+            return True
+    return False
+
 def process_command(command):
     command = normalize_command(command)
 
     try:
+        if handle_system_command(command):
+            return
+
         if "open visual studio code" in command or "open vs code" in command:
             speak("Opening Visual Studio Code")
             if not open_app("Visual Studio Code", [

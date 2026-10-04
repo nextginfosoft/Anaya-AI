@@ -51,6 +51,11 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 | Introduce yourself | Maya introduces itself |
 | Who are you | Maya introduces itself |
 | Stop Maya | Closes Maya AI |
+| Volume up / down / mute / set volume to 40 | Controls system volume |
+| Brightness up / down / set brightness to 30 | Controls screen brightness |
+| Lock the screen | Locks Windows |
+| What time is it / what is the date / battery | Spoken answers |
+| Open Notepad / Calculator / Task Manager / Settings / File Explorer | Opens the app |
 
 ---
 
