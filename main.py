@@ -155,8 +155,9 @@ def stop_requested():
 _speak_lock = threading.Lock()  # reminders speak from a background thread; never talk over each other
 
 def speak(text):
+    """Speak `text`. Returns True if you interrupted her (Esc / talk key)."""
     with _speak_lock:
-        _speak(text)
+        return bool(_speak(text))
 
 def _speak(text):
     try:
@@ -181,7 +182,7 @@ def _speak(text):
                 if time.time() - started > 0.4 and stop_requested():
                     proc.kill()
                     print("(interrupted)")
-                    break
+                    return True
                 time.sleep(0.05)
         elif IS_MAC:
             subprocess.run(["say", text])
@@ -778,6 +779,213 @@ def handle_reminder_command(command):
         return True
     return False
 
+# -------------------- HANDS-FREE TEXT TOOLS (dictation, read aloud, translate, summarise) -------------------- #
+DICTATING = False
+MAX_READ_CHARS = 2000    # how much of the clipboard/selection Maya will read aloud
+MAX_LLM_CHARS = 6000     # how much text is sent to the local model for translate/summarise
+
+_SPOKEN_PUNCTUATION = [
+    (r"\bnew paragraph\b", "\n\n"), (r"\bnew line\b", "\n"),
+    (r"\bfull stop\b|\bperiod\b", "."), (r"\bcomma\b", ","), (r"\bquestion mark\b", "?"),
+    (r"\bexclamation (?:mark|point)\b", "!"), (r"\bcolon\b", ":"),
+]
+_TRANSLATE_TARGETS = {
+    "hindi": "Hindi", "english": "English", "marathi": "Marathi", "gujarati": "Gujarati", "tamil": "Tamil",
+    "telugu": "Telugu", "bengali": "Bengali", "spanish": "Spanish", "french": "French", "german": "German",
+}
+
+def _clip_get():
+    try:
+        import pyperclip
+        return pyperclip.paste()
+    except Exception:
+        return None
+
+def _clip_set(text):
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return True
+    except Exception:
+        return False
+
+def format_dictation(text):
+    """Turn spoken text into typed text: 'comma', 'new line', 'full stop' etc. and sentence capitals."""
+    t = text.strip()
+    for pattern, repl in _SPOKEN_PUNCTUATION:
+        t = re.sub(pattern, repl, t, flags=re.I)
+    t = re.sub(r"\s+([.,?!:])", r"\1", t)            # no space before punctuation
+    t = re.sub(r" *\n *", "\n", t)
+    t = re.sub(r"(^|[.?!]\s+|\n)([a-z])", lambda m: m.group(1) + m.group(2).upper(), t)
+    return t if t.endswith("\n") else t + " "
+
+def type_text(text):
+    """Type `text` into the active window by pasting it (works for Hindi and other Unicode too)."""
+    import keyboard
+    previous = _clip_get()
+    _clip_set(text)
+    time.sleep(0.05)
+    keyboard.send("ctrl+v")
+    time.sleep(0.2)
+    if previous is not None:
+        _clip_set(previous)
+
+def get_selected_text():
+    """Copy whatever is selected in the active window, then put the old clipboard back."""
+    import keyboard
+    previous = _clip_get()
+    _clip_set("")
+    keyboard.send("ctrl+c")
+    time.sleep(0.3)
+    selected = _clip_get() or ""
+    _clip_set(previous if previous is not None else "")
+    return selected
+
+def llm_once(instruction, text, max_tokens=300):
+    """One-off local-model call (no conversation memory)."""
+    response = ollama.chat(
+        model=OLLAMA_MODEL,
+        messages=[{"role": "system", "content": instruction}, {"role": "user", "content": text[:MAX_LLM_CHARS]}],
+        options={"num_predict": max_tokens},
+    )
+    return response["message"]["content"].strip()
+
+def handle_text_tools(raw, command):
+    """'type …', dictation mode, read aloud, translate, summarise. Returns True if handled."""
+    global DICTATING
+
+    m = re.match(r"^\s*type\s+(?!of\b|is\b|are\b|in\b|the difference\b)(.+)$", raw, flags=re.I | re.S)
+    if m:
+        type_text(format_dictation(m.group(1)))
+        return True
+
+    # normalize_command turns a leading "start" into "open", so accept that too
+    if re.search(r"\b(start|begin|enable|turn on|open)\b.*\bdictation\b|^dictation( mode)?$|^dictate$", command):
+        DICTATING = True
+        speak("Dictation on. Say stop dictation when you are done.")
+        return True
+
+    wants_clipboard = re.search(r"\b(clipboard|what i copied|copied text|copied)\b", command)
+    wants_selection = re.search(r"\b(this|that|selection|selected( text)?|it)\b", command)
+
+    def fetch():
+        return (_clip_get() or "") if wants_clipboard else get_selected_text()
+
+    if re.match(r"^read\b", command) and (wants_clipboard or wants_selection):
+        text = re.sub(r"\s+", " ", fetch()).strip()
+        if not text:
+            speak("There is nothing to read")
+        else:
+            speak(text[:MAX_READ_CHARS])
+        return True
+
+    m = re.match(r"^translate\b.*?\bto (" + "|".join(_TRANSLATE_TARGETS) + r")$", command)
+    if m:
+        language = _TRANSLATE_TARGETS[m.group(1)]
+        text = fetch().strip()
+        if not text:
+            speak("There is nothing to translate. Select or copy some text first")
+            return True
+        speak(f"Translating to {language}")
+        result = llm_once(f"Translate the user's text into {language}. Output only the translation, nothing else.", text, 500)
+        _clip_set(result)
+        # The installed voice only speaks English, so other languages go to the clipboard instead.
+        speak(result[:MAX_READ_CHARS] if language == "English" else f"The {language} translation is on your clipboard")
+        return True
+
+    if re.match(r"^(summari[sz]e|sum up)\b", command) and (wants_clipboard or wants_selection):
+        text = fetch().strip()
+        if not text:
+            speak("There is nothing to summarise. Select or copy some text first")
+            return True
+        speak("Summarising")
+        summary = llm_once("Summarise the user's text in at most two short spoken sentences. Plain text only, no lists.", text, 120)
+        speak(clean_for_speech(summary) or "I could not summarise that")
+        return True
+    return False
+
+# -------------------- MORNING BRIEFING -------------------- #
+BRIEFING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_briefing.json")
+BRIEFING_COOLDOWN_HOURS = 4   # don't repeat the sign-in briefing if Maya restarts within this time
+
+def get_battery_text():
+    if not IS_WINDOWS:
+        return None
+    out = _powershell("(Get-CimInstance Win32_Battery | Select-Object -First 1 EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress)")
+    info = json.loads(out)
+    charging = " and charging" if info.get("BatteryStatus") in (2, 6, 7, 8) else ""
+    return f"Battery is at {info['EstimatedChargeRemaining']} percent{charging}."
+
+def build_briefing_lines(now=None):
+    """Each section is optional: if the internet or a sensor is unavailable that part is just skipped."""
+    now = now or datetime.now()
+    greeting = "Good morning" if now.hour < 12 else "Good afternoon" if now.hour < 17 else "Good evening"
+    lines = [f"{greeting} boss. It is {now.strftime('%I:%M %p').lstrip('0')} on {now.strftime('%A, %d %B')}."]
+
+    for fetch in (
+        get_battery_text,
+        lambda: (get_weather(home_city()) if home_city() else None),
+    ):
+        try:
+            part = fetch()
+            if part:
+                lines.append(part)
+        except Exception as e:
+            print("Briefing section skipped:", e)
+
+    try:
+        reminders = sorted(_load_reminders(), key=lambda i: i["due"])
+        if reminders:
+            names = ", ".join(i["text"] for i in reminders[:3])
+            lines.append(f"You have {len(reminders)} reminder" + ("s" if len(reminders) > 1 else "") + f": {names}.")
+    except Exception as e:
+        print("Briefing section skipped:", e)
+
+    try:
+        titles = get_news(3)
+        if titles:
+            lines.append("Top headlines. " + " ... ".join(titles))
+    except Exception as e:
+        print("Briefing section skipped:", e)
+    return lines
+
+def _mark_briefing_done():
+    try:
+        with open(BRIEFING_FILE, "w", encoding="utf-8") as f:
+            json.dump({"time": time.time()}, f)
+    except Exception:
+        pass
+
+def briefing_due():
+    try:
+        with open(BRIEFING_FILE, encoding="utf-8") as f:
+            return time.time() - json.load(f)["time"] >= BRIEFING_COOLDOWN_HOURS * 3600
+    except Exception:
+        return True
+
+def run_briefing():
+    _mark_briefing_done()
+    for line in build_briefing_lines():
+        if speak(line):          # interrupted with Esc / talk key: stop the whole briefing
+            break
+
+def maybe_start_morning_briefing():
+    """At startup (sign-in) give the briefing once, after a short delay so Wi-Fi is up. MAYA_BRIEFING=0 turns it off."""
+    if os.environ.get("MAYA_BRIEFING", "1") == "0" or not briefing_due():
+        return
+
+    def worker():
+        time.sleep(int(os.environ.get("MAYA_BRIEFING_DELAY", "12")))
+        run_briefing()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+def handle_briefing_command(command):
+    if re.search(r"\b(briefing|brief me|morning update|daily update)\b", command):
+        run_briefing()
+        return True
+    return False
+
 # -------------------- WINDOWS SYSTEM COMMANDS -------------------- #
 def _press_media_key(name, times=1):
     import keyboard
@@ -899,9 +1107,30 @@ def handle_system_command(command):
     return False
 
 def process_command(command):
+    global DICTATING
+    raw = command
+
+    # Dictation mode: everything you say is typed into the active window until you say "stop dictation".
+    if DICTATING:
+        try:
+            if re.search(r"\b(stop|end|finish)\s+dictation\b|\bdictation off\b", raw, flags=re.I):
+                DICTATING = False
+                speak("Dictation off")
+            else:
+                type_text(format_dictation(raw))
+        except Exception as e:
+            print("Dictation error:", e)
+        return
+
     command = normalize_command(hindi_to_english(command))
 
     try:
+        if handle_text_tools(raw, command):
+            return
+
+        if handle_briefing_command(command):
+            return
+
         m = re.search(r"\b(?:switch to|speak|use|change to)\s+(hindi|english)\b|\b(hindi|english) mode\b", command)
         if m:
             language = m.group(1) or m.group(2)
@@ -1011,6 +1240,7 @@ def start_maya():
     show_startup_gif()
 
     start_reminder_thread()
+    maybe_start_morning_briefing()
     speak("Maya is activated")
 
     awake = False
@@ -1097,6 +1327,7 @@ def record_while_held(rate=16000, max_seconds=15):
 
 def start_push_to_talk():
     start_reminder_thread()
+    maybe_start_morning_briefing()
     show_startup_gif()
     speak("Maya is ready. Hold the talk button and speak.")
     print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop maya' or press Ctrl+C to quit.")

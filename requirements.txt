@@ -7,3 +7,4 @@ ollama
 Pillow
 keyboard
 mouse
+pyperclip

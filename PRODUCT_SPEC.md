@@ -22,6 +22,8 @@ A single desktop user who wants quick spoken commands and short answers without 
 | Live info | Weather (Open-Meteo), news (Google News RSS), "who is / tell me about" (Wikipedia). |
 | Hindi | Falls back to Hindi recognition automatically; "switch to Hindi/English"; core commands work in Hindi/Hinglish; replies stay English. |
 | App list | `apps.json` maps spoken names to URLs, paths or programs; edits apply immediately. |
+| Hands-free text | Dictation mode and "type …" paste into the active window; read the clipboard or selection aloud; translate and summarise via the local model. |
+| Briefing | At sign-in (once per 4 hours, after a 12 s delay) and on demand: time, battery, weather, reminders, headlines. Esc stops it. |
 | Startup | Auto-starts at Windows sign-in (Startup-folder shortcut), logs to `maya.log`. |
 
 ## Non-goals / safety

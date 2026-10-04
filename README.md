@@ -55,6 +55,12 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 | Weather in Delhi / weather / tell me the news / who is Sundar Pichai / tell me about the moon | Live info (Open-Meteo, Google News, Wikipedia) |
 | Switch to Hindi / switch to English | Sets which language is tried first (the other is the automatic fallback). Core commands also work in Hindi/Hinglish, e.g. "क्रोम खोलो", "awaaz badhao". Answers are always spoken in English. |
 | Open <name> (anything in apps.json) | Opens the URL / folder / program you listed in `apps.json` |
+| Start dictation / stop dictation | Everything you say is typed into the active window (say "comma", "full stop", "new line", "new paragraph", "question mark") |
+| Type hello comma world | Types that one phrase into the active window |
+| Read the clipboard / read this | Reads the clipboard, or the currently selected text, aloud |
+| Translate this to Hindi / the clipboard to English | Translates with the local model; English is spoken, other languages are put on the clipboard |
+| Summarise what I copied / summarise this | Two-sentence spoken summary from the local model |
+| Give me my briefing | Time, battery, weather, reminders and headlines. Also runs automatically after sign-in (`MAYA_BRIEFING=0` turns it off) |
 | Forget that / new topic | Clears conversation memory |
 | Volume up / down / mute / set volume to 40 | Controls system volume |
 | Brightness up / down / set brightness to 30 | Controls screen brightness |
