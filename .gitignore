@@ -13,6 +13,7 @@ __pycache__/
 .DS_Store
 
 # VS Code settings (optional)
-.vscode/screenshots/
+.vscode/
+screenshots/
 debug_audio/
 maya.log

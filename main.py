@@ -4,6 +4,7 @@ import webbrowser
 import os
 import re
 import sys
+import time
 import shutil
 from pathlib import Path
 import pywhatkit
@@ -137,6 +138,18 @@ def show_startup_gif():
         print(f"❌ GIF Error: {e}")
         print("💡 Continuing without animation...")
 
+STOP_KEY = os.environ.get("MAYA_STOP_KEY", "esc")
+
+def stop_requested():
+    """True if the stop key (default Esc) or a push-to-talk key is held, so you can cut Maya off mid-sentence."""
+    try:
+        import keyboard
+        if keyboard.is_pressed(STOP_KEY):
+            return True
+        return ptt_held()
+    except Exception:
+        return False
+
 def speak(text):
     try:
         print("maya:", text)
@@ -149,11 +162,19 @@ def speak(text):
                 "else { $s.SelectVoiceByHints('Female','Adult',0,[Globalization.CultureInfo]'en-IN') } } catch {};"
                 "$s.Speak($env:MAYA_TEXT)"
             )
-            subprocess.run(
+            proc = subprocess.Popen(
                 ["powershell", "-NoProfile", "-Command", script],
                 env={**os.environ, "MAYA_TEXT": text},  # MAYA_VOICE overrides the voice, e.g. "Microsoft Zira Desktop"
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
+            started = time.time()
+            while proc.poll() is None:
+                # Grace period so a talk key still held from the last request doesn't cut her off instantly
+                if time.time() - started > 0.4 and stop_requested():
+                    proc.kill()
+                    print("(interrupted)")
+                    break
+                time.sleep(0.05)
         elif IS_MAC:
             subprocess.run(["say", text])
         else:

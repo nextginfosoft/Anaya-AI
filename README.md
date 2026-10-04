@@ -175,7 +175,7 @@ Maya: Opening Chrome
 # ⚠️ Notes
 
 - The startup GIF animation is off by default. Set `MAYA_ANIMATION=1` to show it.
-- Spoken answers are kept short (about two sentences). Tune with the `MAYA_MAX_TOKENS` environment variable (default 100).
+- Press **Esc** (or a talk key) while Maya is speaking to cut her off. Spoken answers are kept short (about two sentences). Tune with the `MAYA_MAX_TOKENS` environment variable (default 100).
 - Works on **Windows** and **macOS**. Safari is macOS-only; on Windows it is skipped.
 - Microphone capture uses `sounddevice`, so PyAudio / C++ build tools are not needed.
 - Ollama must be installed for AI chat functionality.
