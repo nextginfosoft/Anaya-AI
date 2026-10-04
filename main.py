@@ -240,7 +240,8 @@ def open_folder_anywhere(foldername):
 MAYA_SYSTEM_PROMPT = (
     "You are Maya, a friendly voice assistant. Your replies are spoken aloud, so answer in at most "
     "two short sentences. Never use bullet points, markdown or emojis, and skip any preamble. If asked for a "
-    "list, name a few items in one spoken sentence. Only go longer if the user explicitly asks for detail."
+    "list, name a few items in one spoken sentence. Only go longer if the user explicitly asks for detail. "
+    "Always reply in English."
 )
 MAX_REPLY_TOKENS = int(os.environ.get("MAYA_MAX_TOKENS", "100"))
 
@@ -255,17 +256,32 @@ def clean_for_speech(text):
             text = text[: cut + 1]
     return text
 
+# Conversation memory: the last few turns are sent with each question; it resets after a quiet period.
+HISTORY = []                 # list of {"role": ..., "content": ...}
+HISTORY_MAX_TURNS = 6        # user+assistant pairs kept
+HISTORY_IDLE_SECONDS = 300   # forget after 5 minutes of silence
+_last_chat_time = 0.0
+
+def forget_conversation():
+    HISTORY.clear()
+
 def ask_local_ai(prompt):
+    global _last_chat_time
     try:
+        now = time.time()
+        if now - _last_chat_time > HISTORY_IDLE_SECONDS:
+            forget_conversation()
+        messages = [{"role": "system", "content": MAYA_SYSTEM_PROMPT}] + HISTORY + [{"role": "user", "content": prompt}]
         response = ollama.chat(
             model=OLLAMA_MODEL,
-            messages=[
-                {"role": "system", "content": MAYA_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             options={"num_predict": MAX_REPLY_TOKENS},
         )
-        return clean_for_speech(response["message"]["content"]) or "Sorry boss, I have no answer."
+        reply = clean_for_speech(response["message"]["content"]) or "Sorry boss, I have no answer."
+        HISTORY.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+        del HISTORY[:-2 * HISTORY_MAX_TURNS]
+        _last_chat_time = now
+        return reply
     except Exception as e:
         print("Ollama Error:", e)
         return "Sorry boss, AI is not responding."
@@ -520,6 +536,11 @@ def process_command(command):
     command = normalize_command(command)
 
     try:
+        if re.search(r"\b(forget (that|this|everything|it)|new topic|start over|clear (the )?(memory|conversation))\b", command):
+            forget_conversation()
+            speak("Okay boss, starting fresh")
+            return
+
         if handle_system_command(command):
             return
 

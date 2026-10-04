@@ -112,3 +112,43 @@ def test_search_google_opens_browser(log):
 def test_stop_maya_exits(log):
     with pytest.raises(SystemExit):
         main.process_command("stop maya")
+
+
+# ---------------- conversation memory ----------------
+class TestMemory:
+    @pytest.fixture(autouse=True)
+    def fake_ollama(self, monkeypatch):
+        self.calls = []
+
+        def chat(model, messages, options=None):
+            self.calls.append(messages)
+            return {"message": {"content": f"Answer number {len(self.calls)}."}}
+
+        monkeypatch.setattr(main.ollama, "chat", chat)
+        main.forget_conversation()
+        monkeypatch.setattr(main, "_last_chat_time", 0.0)
+        yield
+        main.forget_conversation()
+
+    def test_follow_up_includes_previous_turn(self):
+        main.ask_local_ai("who wrote hamlet")
+        main.ask_local_ai("when was he born")
+        second = self.calls[1]
+        assert [m["role"] for m in second] == ["system", "user", "assistant", "user"]
+        assert second[1]["content"] == "who wrote hamlet"
+
+    def test_history_is_capped(self):
+        for i in range(main.HISTORY_MAX_TURNS + 4):
+            main.ask_local_ai(f"q{i}")
+        assert len(main.HISTORY) == 2 * main.HISTORY_MAX_TURNS
+
+    def test_resets_after_idle(self, monkeypatch):
+        main.ask_local_ai("first")
+        monkeypatch.setattr(main, "_last_chat_time", main._last_chat_time - main.HISTORY_IDLE_SECONDS - 1)
+        main.ask_local_ai("second")
+        assert [m["role"] for m in self.calls[1]] == ["system", "user"]
+
+    def test_forget_command_clears_history(self, log):
+        main.HISTORY.extend([{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}])
+        main.process_command("forget that")
+        assert not main.HISTORY
