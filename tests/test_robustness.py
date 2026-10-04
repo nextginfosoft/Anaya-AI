@@ -130,3 +130,15 @@ def test_rejected_audio_kept_only_when_enabled_and_pruned(tmp_path, monkeypatch)
     for _ in range(6):
         assert main.save_rejected_audio(FakeAudio())
     assert len(list((tmp_path / "debug_audio").glob("*.wav"))) == 3
+
+
+def test_rejected_audio_names_never_collide_and_prune_in_time_order(tmp_path, monkeypatch):
+    """Even with a frozen clock (as on coarse Windows timers) clips must not overwrite each other, and the oldest are pruned first."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANAYA_DEBUG_AUDIO", "1")
+    monkeypatch.setattr(main, "DEBUG_AUDIO_KEEP", 3)
+    monkeypatch.setattr(main.time, "time_ns", lambda: 1_700_000_000_000_000_000)      # clock never advances
+    names = [main.save_rejected_audio(FakeAudio()) for _ in range(6)]
+    assert len(set(names)) == 6                                                      # all distinct
+    remaining = sorted(p.name for p in (tmp_path / "debug_audio").glob("*.wav"))
+    assert remaining == sorted(os.path.basename(n) for n in names[-3:])              # the 3 newest survive

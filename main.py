@@ -6,6 +6,7 @@ import re
 import sys
 import time
 import json
+import itertools
 import threading
 import shutil
 from pathlib import Path
@@ -446,6 +447,7 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
     return frames_to_audio(frames, rate, MAX_GAIN, loud_chunks)
 
 DEBUG_AUDIO_KEEP = 30
+_clip_counter = itertools.count()
 
 def save_rejected_audio(audio):
     """Off by default (it stores recordings of your voice). ANAYA_DEBUG_AUDIO=1 keeps the last 30 rejected clips."""
@@ -453,7 +455,9 @@ def save_rejected_audio(audio):
         return None
     try:
         os.makedirs("debug_audio", exist_ok=True)
-        name = f"debug_audio/reject_{datetime.now().strftime('%H-%M-%S-%f')}.wav"
+        # Nanosecond timestamp + counter: unique even if the clock ticks coarsely, and names sort in true time order
+        # (a time-of-day name would sort wrongly across midnight and prune the wrong clips).
+        name = f"debug_audio/reject_{time.time_ns()}_{next(_clip_counter):06d}.wav"
         with open(name, "wb") as f:
             f.write(audio.get_wav_data())
         clips = sorted(os.path.join("debug_audio", n) for n in os.listdir("debug_audio") if n.endswith(".wav"))
