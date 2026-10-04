@@ -231,7 +231,10 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
     sd.wait()
     threshold = max(float(np.abs(ambient).mean()) * 3, 40.0)
 
-    frames, preroll, started, silent_chunks = [], [], False, 0
+    MIN_LOUD_CHUNKS = 3   # need >= 0.3 s of sound above threshold, otherwise it's a click/tap, not speech
+    MAX_GAIN = 40.0       # cap on the volume boost so noise isn't blown up into a loud burst
+
+    frames, preroll, started, silent_chunks, loud_chunks = [], [], False, 0, 0
     waited, spoken = 0.0, 0.0
     with sd.InputStream(samplerate=rate, channels=1, dtype="int16", blocksize=chunk) as stream:
         while True:
@@ -241,6 +244,7 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
                 waited += 0.1
                 if loud:
                     started = True
+                    loud_chunks = 1
                     # Include the quiet moments just before the trigger so soft onsets aren't clipped
                     frames.extend(preroll)
                     frames.append(data.copy())
@@ -252,15 +256,27 @@ def record_phrase(timeout=5, phrase_time=6, rate=16000):
             else:
                 frames.append(data.copy())
                 spoken += 0.1
+                waited += 0.1
+                loud_chunks += 1 if loud else 0
                 silent_chunks = 0 if loud else silent_chunks + 1
                 if silent_chunks >= 10 or spoken >= phrase_time:
-                    break
+                    if loud_chunks >= MIN_LOUD_CHUNKS:
+                        break
+                    # Too short to be speech: discard and keep waiting (time already spent still counts)
+                    frames, preroll, started, silent_chunks, loud_chunks, spoken = [], [], False, 0, 0, 0.0
+                    if waited >= timeout:
+                        return None
     samples = np.concatenate(frames).astype(np.float32)
-    peak = float(np.abs(samples).max())
-    if peak > 0:
-        # Quiet laptop mics: boost to a usable level (capped so noise isn't amplified absurdly)
-        samples *= min(20000.0 / peak, 60.0)
+    raw_peak = float(np.abs(samples).max())
+    gain = 1.0
+    if raw_peak > 0:
+        # Quiet laptop mics: boost toward a usable level, capped at MAX_GAIN
+        gain = min(20000.0 / raw_peak, MAX_GAIN)
+        samples = np.clip(samples * gain, -32768, 32767)
+    LAST_CLIP.update(raw_peak=int(raw_peak), gain=round(gain, 1), loud_chunks=loud_chunks)
     return sr.AudioData(samples.astype(np.int16).tobytes(), rate, 2)
+
+LAST_CLIP = {}
 
 def listen_command(timeout=5, phrase_time=6):
     try:
@@ -279,7 +295,7 @@ def listen_command(timeout=5, phrase_time=6):
                 f.write(audio.get_wav_data())
             import numpy as np
             pcm = np.frombuffer(audio.frame_data, dtype=np.int16)
-            print(f"Heard speech but could not understand it ({len(pcm)/audio.sample_rate:.1f}s, saved {name})")
+            print(f"Heard speech but could not understand it ({len(pcm)/audio.sample_rate:.1f}s, raw peak {LAST_CLIP.get('raw_peak')}, gain x{LAST_CLIP.get('gain')}, saved {name})")
         except Exception:
             print("Heard speech but could not understand it")
         return ""
