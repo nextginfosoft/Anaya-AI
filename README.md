@@ -51,6 +51,9 @@ Maya AI is a personal voice assistant built with Python and powered by Ollama. I
 | Introduce yourself | Maya introduces itself |
 | Who are you | Maya introduces itself |
 | Stop Maya | Closes Maya AI |
+| Remind me in 10 minutes to call Raj / set a timer for 5 minutes / what are my reminders / cancel reminders | Spoken reminders that survive restarts |
+| Weather in Delhi / weather / tell me the news / who is Sundar Pichai / tell me about the moon | Live info (Open-Meteo, Google News, Wikipedia) |
+| Forget that / new topic | Clears conversation memory |
 | Volume up / down / mute / set volume to 40 | Controls system volume |
 | Brightness up / down / set brightness to 30 | Controls screen brightness |
 | Lock the screen | Locks Windows |

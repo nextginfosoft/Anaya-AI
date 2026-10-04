@@ -227,3 +227,49 @@ class TestReminderStorage:
             main._reminder_loop()
         assert "say:Reminder: call raj" in log
         assert [r["text"] for r in main._load_reminders()] == ["far future"]
+
+
+# ---------------- live info (network mocked) ----------------
+class TestLiveInfo:
+    @pytest.fixture(autouse=True)
+    def fake_http(self, monkeypatch):
+        def fake(url, params=None):
+            if "geocoding" in url:
+                return {"results": [{"name": "Delhi", "latitude": 28.6, "longitude": 77.2}]} if params["name"].lower() == "delhi" else {}
+            if "open-meteo.com/v1/forecast" in url:
+                return {"current": {"temperature_2m": 31.4, "apparent_temperature": 35.2, "weather_code": 0, "wind_speed_10m": 5}}
+            if "search/title" in url:
+                return {"pages": [{"key": "Moon"}]} if params["q"] == "moon" else {"pages": []}
+            if "page/summary" in url:
+                return {"extract": "The Moon (Latin: Luna) is Earth's satellite. It orbits Earth. A third sentence."}
+            raise AssertionError(url)
+
+        monkeypatch.setattr(main, "_http_json", fake)
+
+    def test_weather_for_named_city(self, log):
+        main.process_command("what is the weather in Delhi")
+        assert "say:In Delhi it is 31 degrees with clear sky, feels like 35." in log
+
+    def test_unknown_city(self, log):
+        main.process_command("weather in Nowhereville")
+        assert any("could not find weather" in e for e in log)
+
+    def test_wikipedia_summary_is_two_sentences(self, log):
+        main.process_command("tell me about the moon")
+        said = [e for e in log if e.startswith("say:The Moon")][0]
+        assert "Latin" not in said and "third sentence" not in said
+
+    def test_unknown_topic_falls_back_to_ai(self, log):
+        main.process_command("who is zzzz")
+        assert any(e.startswith("say:ai:") for e in log)
+
+    def test_network_failure_is_handled(self, log, monkeypatch):
+        def boom(url, params=None):
+            raise OSError("offline")
+        monkeypatch.setattr(main, "_http_json", boom)
+        main.process_command("weather in Delhi")
+        assert any("could not reach the internet" in e for e in log)
+
+    def test_what_is_questions_still_go_to_ai(self, log):
+        main.process_command("what is two plus two")
+        assert any(e.startswith("say:ai:") for e in log)

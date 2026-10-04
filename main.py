@@ -420,6 +420,104 @@ def normalize_command(command):
     command = re.sub(r"\bplease\b", "", command)
     return re.sub(r"\s+", " ", command).strip()
 
+# -------------------- LIVE INFO (weather, news, Wikipedia) -------------------- #
+# Free services, no API keys: Open-Meteo (weather), Google News RSS, Wikipedia. Your question text is sent to them.
+HTTP_HEADERS = {"User-Agent": "MayaAI/1.2 (personal voice assistant)"}
+HTTP_TIMEOUT = 6
+_WEATHER_CODES = {
+    0: "clear sky", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "foggy", 48: "foggy",
+    51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain",
+    71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers", 81: "rain showers", 82: "heavy showers",
+    95: "a thunderstorm", 96: "a thunderstorm with hail", 99: "a thunderstorm with hail",
+}
+_home_city_cache = {}
+
+def _http_json(url, params=None):
+    import requests
+    r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=HTTP_TIMEOUT)
+    r.raise_for_status()
+    return r.json()
+
+def home_city():
+    """MAYA_CITY if set, otherwise a one-time guess from your IP address."""
+    if os.environ.get("MAYA_CITY"):
+        return os.environ["MAYA_CITY"]
+    if "city" not in _home_city_cache:
+        try:
+            _home_city_cache["city"] = _http_json("https://ipwho.is/").get("city") or ""
+        except Exception:
+            _home_city_cache["city"] = ""
+    return _home_city_cache["city"]
+
+def get_weather(city):
+    """Return a spoken weather sentence for `city`, or None if it can't be found."""
+    geo = _http_json("https://geocoding-api.open-meteo.com/v1/search", {"name": city, "count": 1}).get("results")
+    if not geo:
+        return None
+    place = geo[0]
+    cur = _http_json("https://api.open-meteo.com/v1/forecast", {
+        "latitude": place["latitude"], "longitude": place["longitude"],
+        "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+    })["current"]
+    sky = _WEATHER_CODES.get(cur["weather_code"], "unsettled")
+    return (f"In {place['name']} it is {round(cur['temperature_2m'])} degrees with {sky}, "
+            f"feels like {round(cur['apparent_temperature'])}.")
+
+def get_news(count=3):
+    import xml.etree.ElementTree as ET
+    import requests
+    r = requests.get("https://news.google.com/rss", params={"hl": "en-IN", "gl": "IN", "ceid": "IN:en"},
+                     headers=HTTP_HEADERS, timeout=HTTP_TIMEOUT)
+    r.raise_for_status()
+    titles = [i.findtext("title", "") for i in ET.fromstring(r.content).iter("item")][:count]
+    titles = [re.sub(r"\s+-\s+[^-]+$", "", t) for t in titles if t]   # drop the " - Publisher" suffix
+    return titles
+
+def get_wikipedia_summary(topic, sentences=2):
+    """Short summary for `topic`, or None if there's no good match."""
+    found = _http_json("https://en.wikipedia.org/w/rest.php/v1/search/title", {"q": topic, "limit": 1}).get("pages")
+    if not found:
+        return None
+    from urllib.parse import quote
+    page = _http_json("https://en.wikipedia.org/api/rest_v1/page/summary/" + quote(found[0]["key"], safe=""))
+    extract = re.sub(r"\s*\([^)]*\)", "", page.get("extract", ""))      # drop pronunciation/date brackets
+    parts = re.split(r"(?<=[.!?])\s+", extract)
+    return " ".join(parts[:sentences]) or None
+
+def handle_info_command(command):
+    """Weather, news and 'who is / tell me about' lookups. Returns True if handled."""
+    try:
+        if re.search(r"\bweather\b|\btemperature\b", command):
+            m = re.search(r"\b(?:in|at|for)\s+([a-z][a-z .'-]+?)(?:\s+(?:today|now|tomorrow|right now))?$", command)
+            city = m.group(1).strip() if m else home_city()
+            if not city:
+                speak("Tell me which city, for example weather in Delhi")
+                return True
+            reply = get_weather(city)
+            speak(reply or f"I could not find weather for {city}")
+            return True
+
+        if re.search(r"\b(news|headlines)\b", command):
+            titles = get_news()
+            speak("Here are the top headlines. " + " ... ".join(titles) if titles else "I could not get the news")
+            return True
+
+        m = re.match(r"^(?:who is|who was|tell me about|search wikipedia for|wikipedia)\s+(.+)$", command)
+        if m:
+            topic = re.sub(r"^(?:the|a|an)\s+", "", m.group(1).strip())
+            if topic in ("you", "yourself"):
+                return False                                  # handled by the introduction
+            summary = get_wikipedia_summary(topic)
+            if summary:
+                speak(summary)
+                return True
+            return False                                      # no page: let the AI try
+    except Exception as e:
+        print("Info error:", e)
+        speak("I could not reach the internet for that")
+        return True
+    return False
+
 # -------------------- REMINDERS & TIMERS -------------------- #
 import json
 import threading
@@ -703,6 +801,9 @@ def process_command(command):
             return
 
         if handle_reminder_command(command):
+            return
+
+        if handle_info_command(command):
             return
 
         if handle_system_command(command):
