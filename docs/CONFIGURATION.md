@@ -20,7 +20,8 @@ setx ANAYA_CITY "Mumbai"
 | Setting | Default | Meaning |
 |---|---|---|
 | `ANAYA_MODE` | `ptt` | `ptt` = hold-to-talk, `wake` = say "Anaya" first |
-| `ANAYA_PTT_KEY` | `right ctrl,f9` | Talk keys, comma separated. `mouse:x` and `mouse:x2` use the mouse side buttons if your mouse reports them |
+| `ANAYA_SPACE_HOLD` | `0.30` | Seconds Space must be held before it counts as talking |
+| `ANAYA_PTT_KEY` | `smart space,f9` | Talk keys, comma separated. `smart space` = hold Space; plain names such as `right ctrl` or `f8` also work. `mouse:x` and `mouse:x2` use the mouse side buttons if your mouse reports them |
 | `ANAYA_STOP_KEY` | `esc` | Key that interrupts speech |
 | `ANAYA_STT` | `whisper` | `whisper` (offline) or `google` |
 | `ANAYA_STT_FALLBACK` | `1` | `0` = never use Google, even if Whisper hears nothing |
@@ -38,6 +39,18 @@ setx ANAYA_CITY "Mumbai"
 | `ANAYA_ANIMATION` | `0` | `1` = open the startup animation in the browser |
 | `ANAYA_DEBUG_AUDIO` | `0` | `1` = keep the last 30 rejected recordings in `debug_audio/` |
 | `ANAYA_ALLOW_MULTIPLE` | `0` | `1` = allow more than one copy to run |
+
+## Talk key: how "smart space" works
+
+Space is an ordinary typing key, so Anaya treats it carefully:
+
+- **Tap** Space (shorter than `ANAYA_SPACE_HOLD`): it is held back for that moment and then typed as a normal space.
+- **Hold** Space about 0.3 s: it becomes the talk key (you hear a beep). Nothing is typed into the active window, and key-repeat is swallowed. Release to send.
+- **Typing in progress:** if any other key was pressed in the last 0.6 s, or Ctrl, Alt, Shift or Windows is held, Space passes straight through untouched. This keeps fast typing in order and leaves shortcuts such as Ctrl+Space alone.
+- **Safe failure:** if anything goes wrong inside the handler, the key is let through. If a key-up is ever missed, talking expires after 20 s.
+
+Limits: it cannot see keys inside administrator-level windows unless Anaya runs as administrator, key-repeat on Space stops working while Anaya is running, and games that rely on holding Space are better played with `ANAYA_PTT_KEY=f9`.
+To use a plain key instead, set `ANAYA_PTT_KEY=right ctrl,f9`. Ending `pythonw.exe` in Task Manager releases Space at once.
 
 ## apps.json
 

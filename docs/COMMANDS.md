@@ -1,6 +1,6 @@
 # Voice commands
 
-Hold **Right Ctrl** (or **F9**), speak, release. Filler words such as "please", "the", "my", "can you" and "hey" are ignored, and
+Hold **Space** for about a third of a second until you hear the beep (or hold **F9**), speak, release. A quick tap of Space still types a space. Filler words such as "please", "the", "my", "can you" and "hey" are ignored, and
 "launch" or "start" mean "open". Phrases are matched loosely, so "please open the Chrome" works like "open Chrome".
 
 In wake-word mode (`ANAYA_MODE=wake`) say **"Anaya"** first, either alone ("Anaya" ... "open Chrome") or in one go ("Anaya, open Chrome").

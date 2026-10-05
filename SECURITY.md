@@ -13,7 +13,7 @@ Anaya is a voice assistant that can control the computer, so it is worth knowing
 | Capability | Detail |
 |---|---|
 | Microphone | Records **only while you hold the talk key** (default mode). In wake-word mode it listens continuously. |
-| Global keyboard and mouse hooks | Needed to see the talk key and the stop key. Anaya only checks whether those keys are held; it does not log what you type. |
+| Global keyboard and mouse hooks | Needed to see the talk key and the stop key. Anaya only checks whether those keys are held; it does not log what you type. The Space key is intercepted: a tap is held back for up to 0.3 s and re-sent as a normal space, and a hold becomes the talk key. If the handler fails, the key is let through. |
 | Clipboard and selection | Read and temporarily changed by dictation, "read this", translate and summarise; your clipboard is restored afterwards. |
 | Typing into windows | Dictation and "type ..." paste text into whichever window has focus. |
 | Running programs | Opens apps, folders and addresses you ask for, and anything you list in `apps.json`. |

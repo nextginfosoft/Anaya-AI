@@ -19,7 +19,7 @@ Hold a key, speak, and Anaya controls your computer, answers questions, sets rem
 ## Why Anaya
 
 - **Your voice stays on your PC.** Speech is recognised offline with Whisper; chat runs on a local model through Ollama. Google speech is only a fallback, and you can switch it off.
-- **Hold-to-talk, not always listening.** Anaya records only while you hold **Right Ctrl** (or **F9**). No wake word, no open microphone.
+- **Hold-to-talk, not always listening.** Anaya records only while you hold **Space** (or **F9**), and a quick tap of Space still types a space as usual. No wake word, no open microphone.
 - **Works on a quiet laptop microphone.** Audio is boosted and filtered, and on a synthetic quiet-audio test offline Whisper got 10/10 commands right against Google's 8/10.
 - **English and Hindi.** Recognises both, and core commands work in Hindi and Hinglish.
 - **Does real things.** Volume, brightness, lock screen, reminders, dictation into any window, weather, news, translation, summaries, your own app shortcuts and more.
@@ -40,7 +40,7 @@ cd Anaya-AI
 .\venv\Scripts\python.exe main.py
 ```
 
-Then **hold Right Ctrl, say "open Chrome", and let go.**
+Then **hold Space until you hear the beep, say "open Chrome", and let go.** (A quick tap of Space still types a space.)
 
 The first start downloads the Whisper speech model (about 150 MB). Until it is ready, Anaya uses Google speech.
 
@@ -84,7 +84,7 @@ The full list with exact phrasing is in [docs/COMMANDS.md](docs/COMMANDS.md). A 
 
 ```mermaid
 flowchart LR
-    K[Hold Right Ctrl / F9] --> R[Record microphone]
+    K[Hold Space / F9] --> R[Record microphone]
     R --> W[Whisper<br/>offline speech recognition]
     W -- nothing usable --> G[Google speech<br/>optional fallback]
     W --> C[Command router]
@@ -121,7 +121,8 @@ Settings are environment variables beginning with `ANAYA_` (the old `MAYA_` name
 
 | Setting | Default | What it does |
 |---|---|---|
-| `ANAYA_PTT_KEY` | `right ctrl,f9` | Talk keys (comma separated) |
+| `ANAYA_PTT_KEY` | `smart space,f9` | Talk keys (comma separated). Use `right ctrl,f9` for a plain modifier key instead of Space |
+| `ANAYA_SPACE_HOLD` | `0.30` | Seconds to hold Space before it counts as talking (a shorter press is a normal space) |
 | `ANAYA_MODE` | `ptt` | `wake` switches to saying "Anaya" instead of holding a key |
 | `ANAYA_STT_FALLBACK` | `1` | `0` = never send audio to Google |
 | `ANAYA_TTS` | `edge` | `windows` = offline voice only |
@@ -138,7 +139,8 @@ All settings, `apps.json` and the files Anaya creates are explained in [docs/CON
 | Problem | Try |
 |---|---|
 | She mishears me or says "I did not catch that" | Raise the microphone level in **Settings > System > Sound > Input** to 100%, and speak close to the mic. A headset helps most. |
-| Nothing happens when I hold the key | Another app may be using it, or an administrator-level window has focus. Try `ANAYA_PTT_KEY=f8`. |
+| Nothing happens when I hold Space | Hold it about a third of a second and wait for the beep. Space only talks after you have paused typing for a moment, and not inside administrator-level windows or full-screen games. F9 always works too. |
+| Space feels wrong, or I want it back for typing only | Set `ANAYA_PTT_KEY=right ctrl,f9` and restart Anaya (or end `pythonw.exe` in Task Manager, which releases Space immediately). |
 | "The AI is not running" | Start Ollama, then check `ollama list` shows your model. |
 | "The AI model ... is not installed" | Run `ollama pull llama3.2:3b`. |
 | She answers twice | Only one copy should run. A second launch exits by itself; check Task Manager for stray `python` processes. |

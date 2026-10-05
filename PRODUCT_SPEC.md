@@ -12,7 +12,7 @@ A single desktop user who wants quick spoken commands and short answers without 
 ## Core features (built)
 | Area | Behaviour |
 |---|---|
-| Input | Hold Right Ctrl / F9 to record; release to send. Optional wake-word mode ("Anaya"). |
+| Input | Hold Space (about 0.3 s; a tap still types a space) or F9 to record; release to send. Optional wake-word mode ("Anaya"). |
 | Recognition | Offline Whisper (`base`, English + Hindi) first; Google Speech only as a fallback. Audio is boosted for quiet mics. Benchmark on quiet synthetic commands: Whisper 10/10, Google 8/10. |
 | Output | Neural Edge voice (en-IN Neerja; Hindi Swara for Devanagari), falls back to the offline Windows voice. Clipboard/selection/summaries always use the offline voice. Interruptible with Esc or the talk key. |
 | Apps & web | Open VS Code, Chrome, Safari (mac), WhatsApp, YouTube; search Google/YouTube; play songs. |

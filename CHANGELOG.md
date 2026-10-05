@@ -2,13 +2,21 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- The default talk key is now **hold Space** (a quick tap still types a space) plus F9, instead of Right Ctrl. Space only acts as the talk key after a pause in typing and with no modifier held, so normal typing is never disturbed. Set `ANAYA_PTT_KEY=right ctrl,f9` to go back; `ANAYA_SPACE_HOLD` changes the hold time.
+
+### Fixed
+- Rejected-audio files could overwrite each other on coarse clocks, and were pruned in the wrong order around midnight.
+
 ## [1.2.0] - 2026-10-04 - Anaya AI
 
 The project is renamed from **Maya AI** to **Anaya AI** and is developed by Santosh Pandit. It is based on Maya AI 1.2 by Taha Shaikh (MIT).
 
 ### Added
 - **Windows support** (the original targeted macOS only): speech, apps, folders, screenshots and microphone capture.
-- **Push-to-talk:** hold Right Ctrl or F9 to speak; optional mouse side button; Esc or a talk key interrupts speech. The wake word is still available with `ANAYA_MODE=wake`.
+- **Push-to-talk:** hold a key (Right Ctrl or F9 in this release) to speak; optional mouse side button; Esc or a talk key interrupts speech. The wake word is still available with `ANAYA_MODE=wake`.
 - **Offline speech recognition** with Whisper, with Google as an optional fallback; English and Hindi with automatic language choice; filtering of Whisper's hallucinations on noise.
 - **Natural voice:** Microsoft neural voices (English and Hindi), falling back to the offline Windows voice; private text always uses the offline voice.
 - **Conversation memory** for follow-up questions, with "forget that".

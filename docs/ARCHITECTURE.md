@@ -4,7 +4,7 @@ Anaya is deliberately one Python file, [`main.py`](../main.py), organised in lab
 
 ## The path of one request
 
-1. **Wait for the talk key.** `wait_for_ptt()` polls Right Ctrl / F9 (and optional mouse buttons). Nothing records before the key goes down.
+1. **Wait for the talk key.** `wait_for_ptt()` polls the talk keys: hold Space (`SmartSpace`), F9, or optional mouse buttons. Nothing records before the key goes down. `SmartSpace` intercepts only the Space key: a tap is held back briefly and re-sent as a normal space, a hold of about 0.3 s becomes the talk key, and during typing Space passes straight through.
 2. **Record.** `record_while_held()` captures 16 kHz mono audio with `sounddevice` while the key is held (max 15 s; taps under 0.3 s are ignored).
    `frames_to_audio()` boosts quiet audio up to 40x.
 3. **Recognise.** `recognize_with_fallback()` tries offline **Whisper** first, then Google (English, then Hindi) if allowed.
@@ -41,6 +41,7 @@ Anaya is deliberately one Python file, [`main.py`](../main.py), organised in lab
 - **Private text never goes to an online voice.** Anything derived from your clipboard or selection calls `speak(..., offline=True)`.
 - **Hold-to-talk instead of a wake word.** It avoids the open microphone, background chatter being transcribed, and false wake-ups, and it is far more reliable on a quiet microphone.
 - **Boost, then filter.** A quiet laptop microphone is amplified up to 40x; Whisper's output is then filtered for hallucinations.
+- **Space as a talk key, carefully.** Intercepting a typing key is invasive, so `SmartSpace` only acts after a quiet moment with no modifiers held, always answers the hook with a real True/False (the keyboard library also swallows a key on `None`), lets the key through on any error, and expires a stuck "talking" state after 20 s.
 - **Safe by default.** No shutdown, restart or sleep by voice. Recordings are not saved unless you turn that on. A second copy refuses to start.
 - **Degrade, don't fail.** Every online feature has a fallback or a clear spoken message (no internet, Ollama down, model missing, microphone unavailable).
 - **Normalisation matters.** `normalize_command` rewrites a leading "start"/"launch" to "open" and drops "the/my/a", so any new pattern has to be written against the normalised text.

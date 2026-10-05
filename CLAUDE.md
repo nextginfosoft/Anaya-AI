@@ -4,13 +4,13 @@ Voice assistant (Python, Windows + macOS). Hold a talk key, speak, Anaya transcr
 command or asks a local Ollama model, and answers out loud. Single file: `main.py`.
 
 ## Run
-- `pip install -r requirements.txt` then `python main.py` (hold **Right Ctrl** or **F9** to talk).
+- `pip install -r requirements.txt` then `python main.py` (hold **Space** or **F9** to talk; a tap of Space still types a space).
 - Auto-start: a shortcut `Anaya AI.lnk` in the Windows Startup folder runs `pythonw.exe main.py` (no console; logs to `anaya.log`).
 - Tests: `pip install -r requirements-dev.txt` then `python -m pytest tests -q` (side effects are stubbed).
 - Ollama must be running with the model in `OLLAMA_MODEL` (default `llama3.2:3b`).
 
 ## Environment variables
-`ANAYA_MODE` (`ptt` default | `wake`), `ANAYA_PTT_KEY` (default `right ctrl,f9`; `mouse:x2` supported),
+`ANAYA_MODE` (`ptt` default | `wake`), `ANAYA_PTT_KEY` (default `smart space,f9`; `right ctrl`, `mouse:x2` etc. supported), `ANAYA_SPACE_HOLD` (default 0.30 s),
 `ANAYA_STOP_KEY` (default `esc`), `ANAYA_MODEL`, `ANAYA_MAX_TOKENS` (default 100), `ANAYA_VOICE`, `ANAYA_ANIMATION=1`, `ANAYA_CITY` (default weather city), `ANAYA_STT` (`whisper`|`google`), `ANAYA_STT_FALLBACK` (`0` = never use Google), `ANAYA_WHISPER_MODEL` (default `base`), `ANAYA_TTS` (`edge`|`windows`), `ANAYA_EDGE_VOICE`, `ANAYA_DEBUG_AUDIO=1`, `ANAYA_ALLOW_MULTIPLE=1`, `ANAYA_BRIEFING` (`0` = no sign-in briefing), `ANAYA_BRIEFING_DELAY` (seconds, default 12), `ANAYA_LANG` (first recognition language, default `en-IN`).
 
 ## Structure of main.py
@@ -28,6 +28,7 @@ and push-to-talk loop (`start_push_to_talk`).
 - Speech: private text (clipboard, selection, summaries) must call `speak(..., offline=True)`; plain `speak()` may use the online neural voice.
 - `__main__` = single-instance mutex + `supervise()` (restarts on crashes). Tests that import `main` do not trigger it.
 - `debug_audio/` (rejected clips), `screenshots/`, `anaya.log`, `reminders.json`, `last_briefing.json` and `venv/` are git-ignored; `apps.json` is committed and user-editable.
+- `SmartSpace` (hold-Space-to-talk) intercepts the Space key system-wide: its hook must return a real bool (the `keyboard` library swallows a key on `None` too) and must let the key through on any error. The library does NOT show its own `keyboard.send` events to its hooks, and raw `SendInput` events without a hardware scan code never match a key-specific hook; to test the real hook use `SendInput` with `MapVirtualKey` scan codes, and only send keys while your own test window is verifiably the foreground window.
 - Shell: PowerShell/Git Bash on Windows. Commit messages: present tense. Never commit `.env`.
 
 ## Naming and licence

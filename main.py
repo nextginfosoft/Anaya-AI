@@ -1492,16 +1492,143 @@ def start_anaya():
             print("Loop Error:", e)
 
 # -------------------- PUSH TO TALK -------------------- #
-# Comma-separated list. Default: Right Ctrl or F9. "mouse:x2" / "mouse:x" = mouse side buttons (if your mouse reports them), anything else = keyboard key.
-PTT_KEYS = [k.strip().lower() for k in _env("PTT_KEY", "right ctrl,f9").split(",") if k.strip()]
-PTT_LABEL = " or ".join(("mouse side button" if k == "mouse:x2" else "mouse back button" if k == "mouse:x" else k.upper()) for k in PTT_KEYS)
+def _any_modifier_down():
+    import keyboard
+    return any(keyboard.is_pressed(m) for m in ("ctrl", "alt", "shift", "windows"))
+
+def _send_space_tap():
+    import keyboard
+    keyboard.send("space")
+
+
+class SmartSpace:
+    """Hold Space (about 0.3 s) to talk; a quick tap still types a space as usual.
+
+    Safety rules, because this intercepts a key system-wide:
+    * Space only becomes the talk key after a quiet moment (IDLE_SECONDS with no other key) and with no modifier held,
+      so normal typing, including fast rollover between Space and the next letter, passes through untouched.
+    * A held-back press is re-sent as a normal space when it turns out to be a tap.
+    * The hook always answers True (let through) or False (swallow), and lets the key through if anything goes wrong.
+    * If a key-up is ever missed, "talking" expires by itself after MAX_TALK_SECONDS.
+    """
+    IDLE_SECONDS = 0.60
+    MAX_TALK_SECONDS = 20.0
+
+    def __init__(self, hold_seconds=0.30, clock=time.monotonic, send=None, timer_factory=threading.Timer, modifier_down=None):
+        self.hold_seconds = hold_seconds
+        self._clock = clock
+        self._send = send or _send_space_tap
+        self._timer_factory = timer_factory
+        self._modifier_down = modifier_down or _any_modifier_down
+        self._lock = threading.Lock()
+        self._state = "idle"                  # idle | pass | pending | talking
+        self._token = 0
+        self._timer = None
+        self._last_key = -1e9
+        self._talk_started = 0.0
+        self._expect_resent = 0               # our own re-sent tap events that must be let through
+        self._expect_deadline = 0.0
+        self.installed = False
+
+    @property
+    def talking(self):
+        with self._lock:
+            if self._state == "talking" and self._clock() - self._talk_started > self.MAX_TALK_SECONDS:
+                self._state = "idle"
+            return self._state == "talking"
+
+    def install(self):
+        if self.installed:
+            return
+        import keyboard
+        keyboard.on_press(self.note_key)                              # non-blocking: when was any key last pressed
+        keyboard.hook_key("space", self.on_space, suppress=True)      # blocking: only the Space key
+        self.installed = True
+
+    def note_key(self, event):
+        if event.name != "space":
+            self._last_key = self._clock()
+
+    def on_space(self, event):
+        """Blocking hook. Must return exactly True (let through) or False (swallow); None would also swallow."""
+        try:
+            return bool(self._on_space(event))
+        except Exception as e:
+            print("Smart Space error, letting the key through:", e)
+            return True
+
+    def _on_space(self, event):
+        now = self._clock()
+        with self._lock:
+            if self._expect_resent > 0 and now <= self._expect_deadline:
+                self._expect_resent -= 1
+                return True                                       # the tap we re-sent ourselves
+            if event.event_type == "down":
+                if self._state in ("pending", "talking"):
+                    return False                                  # key-repeat of a press we are holding
+                if self._state == "pass":
+                    return True                                   # key-repeat of an ordinary space
+                if now - self._last_key < self.IDLE_SECONDS or self._modifier_down():
+                    self._state = "pass"                          # typing in progress: not a talk press
+                    self._last_key = now
+                    return True
+                self._state = "pending"
+                self._token += 1
+                self._timer = self._timer_factory(self.hold_seconds, self._promote, args=(self._token,))
+                self._timer.daemon = True
+                self._timer.start()
+                return False
+            # key released
+            state, self._state = self._state, "idle"
+            if state == "pass":
+                self._last_key = now
+                return True
+            if state == "pending":                                # released early: it was just a tap
+                if self._timer is not None:
+                    self._timer.cancel()
+                self._last_key = now
+                self._resend_tap()
+                return False
+            return state != "talking"                             # talking: swallow; stray release: let through
+
+    def _promote(self, token):
+        with self._lock:
+            if self._state == "pending" and token == self._token:
+                self._state = "talking"
+                self._talk_started = self._clock()
+
+    def _resend_tap(self):
+        # The keyboard library normally does not show a hook its own injected keys, but if a system does, let exactly
+        # these two events (key-down, key-up) through. The window is short because the worst case of a stale allowance
+        # is only that one genuine space is typed without being held back.
+        self._expect_resent = 2
+        self._expect_deadline = self._clock() + 0.2
+        threading.Thread(target=self._send_safely, daemon=True).start()
+
+    def _send_safely(self):
+        try:
+            self._send()
+        except Exception as e:
+            print("Could not re-send the space key:", e)
+
+
+SMART_SPACE = SmartSpace(hold_seconds=float(_env("SPACE_HOLD", "0.30")))
+
+# Comma-separated list. Default: hold Space ("smart space") or F9. "mouse:x2" / "mouse:x" = mouse side buttons (if your mouse
+# reports them), anything else is a keyboard key such as "right ctrl". Plain "space" also works but types spaces while you talk.
+PTT_KEYS = [k.strip().lower() for k in _env("PTT_KEY", "smart space,f9").split(",") if k.strip()]
+_PTT_NAMES = {"mouse:x2": "mouse side button", "mouse:x": "mouse back button", "smart space": "SPACE"}
+PTT_LABEL = " or ".join(_PTT_NAMES.get(k, k.upper()) for k in PTT_KEYS)
 
 def ptt_held(keys=None):
     """True while any configured push-to-talk key or mouse button is held."""
     import keyboard
     import mouse
     for k in (keys or PTT_KEYS):
-        if k.startswith("mouse:"):
+        if k == "smart space":
+            if SMART_SPACE.talking:
+                return True
+        elif k.startswith("mouse:"):
             if mouse.is_pressed(k.split(":", 1)[1]):
                 return True
         elif keyboard.is_pressed(k):
@@ -1543,6 +1670,12 @@ def start_push_to_talk():
     start_reminder_thread()
     maybe_start_morning_briefing()
     show_startup_gif()
+    if "smart space" in PTT_KEYS:
+        try:
+            SMART_SPACE.install()
+        except Exception as e:
+            print("Could not hook the Space key:", e)
+            speak("I could not hook the Space key. Use F9 to talk.", offline=True)
     speak("Anaya is ready. Hold the talk button and speak.")
     print(f"Hold [{PTT_LABEL}] to talk, release to send. Say 'stop Anaya' or press Ctrl+C to quit.")
 
